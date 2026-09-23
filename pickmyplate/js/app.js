@@ -46,7 +46,7 @@ const WEEKS = 3;                                        // The menu repeats ever
 const COURSES = [
   { key: 'main',    label: 'Main',    prompt: 'What would you like for your main?' },                                    // Step 1
   { key: 'sides',   label: 'Sides',   prompt: 'Would you like vegetables or salad?', optional: true, skipLabel: 'No thank you' },  // Step 2
-  { key: 'pudding', label: 'Pudding', prompt: 'What would you like for pudding?' }                                       // Step 3
+  { key: 'pudding', label: 'Dessert', prompt: 'What would you like for dessert?' }                                       // Step 3
 ];
 
 // Colours available for diet cards. Format: [hex colour, name]
