@@ -1,0 +1,186 @@
+/* =====================================================================
+   PickMyPlate - custom styles
+   Bootstrap does most of the work. This file only adds what Bootstrap
+   doesn't have (picture tiles, the confirm bar, the step strip) and sets
+   our own colours and fonts.
+   ===================================================================== */
+
+/* ---------- 1. Colours and fonts (change the app's look here) ---------- */
+:root {                                             /* Settings for LIGHT mode */
+  --pmp-brand: #2B6A7C;                             /* Main brand colour (teal blue) used for buttons and tabs */
+  --pmp-brand-dark: #22586A;                        /* Darker brand colour for hover/pressed buttons */
+  --pmp-pick: #E9B21C;                              /* Yellow used to highlight the chosen dish */
+  --pmp-pick-soft: #FFF3C8;                         /* Pale yellow background behind the chosen dish */
+  --pmp-tile-bg: #E2EAE7;                           /* Background behind dish pictures */
+  --pmp-page-bg: #EEF3F1;                           /* Page background (a calm, slightly green grey) */
+  --pmp-display: "Lexend", "Segoe UI", system-ui, sans-serif;               /* Heading font, with fallbacks */
+  --pmp-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;   /* Body font, with fallbacks */
+}
+
+[data-bs-theme="dark"] {                            /* Settings for DARK mode (app.js switches this on) */
+  --pmp-brand: #72B5C8;                             /* Lighter brand colour so it shows on a dark background */
+  --pmp-brand-dark: #8CC6D6;                        /* Hover colour in dark mode */
+  --pmp-pick: #F2C94C;                              /* Highlight yellow in dark mode */
+  --pmp-pick-soft: #3A3218;                         /* Dark yellow background behind the chosen dish */
+  --pmp-tile-bg: #203235;                           /* Dark background behind dish pictures */
+  --pmp-page-bg: #0F1A1C;                           /* Dark page background */
+}
+
+/* ---------- 2. Page basics ---------- */
+body {                                              /* Whole page */
+  font-family: var(--pmp-body);                     /* Use the easy-to-read body font */
+  font-size: 1.05rem;                               /* Slightly larger text than Bootstrap's default */
+  background: var(--pmp-page-bg);                   /* Page background colour from above */
+}
+
+h1, h2, h3, .brand-name {                           /* All headings and the app name */
+  font-family: var(--pmp-display);                  /* Use the heading font */
+  text-wrap: balance;                               /* Spread heading words evenly across lines */
+}
+
+.brand-name { font-weight: 700; font-size: 1.3rem; }   /* App name in the navbar: bold and larger */
+.brand-tagline { font-size: .8rem; }                   /* Tagline under the name: small */
+.navbar { background: var(--bs-body-bg); }             /* Navbar uses Bootstrap's card colour, not the page colour */
+
+/* ---------- 3. Brand colour on Bootstrap buttons and tabs ---------- */
+.btn-primary {                                      /* Bootstrap's main button, recoloured to our brand */
+  --bs-btn-bg: var(--pmp-brand);                    /* Normal background */
+  --bs-btn-border-color: var(--pmp-brand);          /* Normal border */
+  --bs-btn-hover-bg: var(--pmp-brand-dark);         /* Background when the mouse is over it */
+  --bs-btn-hover-border-color: var(--pmp-brand-dark);  /* Border when the mouse is over it */
+  --bs-btn-active-bg: var(--pmp-brand-dark);        /* Background while pressed */
+  --bs-btn-color: #fff;                             /* Text colour */
+  font-weight: 700;                                 /* Bold text */
+}
+[data-bs-theme="dark"] .btn-primary { --bs-btn-color: #0B1A1D; --bs-btn-hover-color: #0B1A1D; }  /* Dark text on light buttons in dark mode */
+
+.btn-outline-primary {                              /* Outlined button (e.g. "Add card") in the brand colour */
+  --bs-btn-color: var(--pmp-brand);                 /* Text colour */
+  --bs-btn-border-color: var(--pmp-brand);          /* Border colour */
+  --bs-btn-hover-bg: var(--pmp-brand);              /* Fills with brand colour on hover */
+  --bs-btn-hover-border-color: var(--pmp-brand);    /* Border on hover */
+  --bs-btn-hover-color: #fff;                       /* White text on hover */
+  font-weight: 700;                                 /* Bold text */
+}
+
+.form-check-input:checked {                         /* Ticked checkboxes, radios and switches */
+  background-color: var(--pmp-brand);               /* Brand colour instead of Bootstrap blue */
+  border-color: var(--pmp-brand);                   /* Matching border */
+}
+
+.nav-pills {                                        /* The three tabs at the top */
+  --bs-nav-pills-link-active-bg: var(--pmp-brand);  /* Selected tab uses the brand colour */
+  background: var(--pmp-tile-bg);                   /* Grey "track" behind the tabs */
+  border-radius: 999px;                             /* Fully rounded ends */
+  padding: 4px;                                     /* Space between the track and the tabs */
+}
+.nav-pills .nav-link { border-radius: 999px; font-weight: 700; color: var(--bs-secondary-color); }  /* Each tab: rounded, bold, grey text */
+.nav-pills .nav-link.active { color: #fff; }        /* Selected tab: white text */
+[data-bs-theme="dark"] .nav-pills .nav-link.active { color: #0B1A1D; }  /* Selected tab text in dark mode */
+
+/* ---------- 4. Small reusable pieces ---------- */
+.label-caps {                                       /* Small uppercase labels like "DIET CARD" */
+  font-size: .75rem;                                /* Small text */
+  font-weight: 700;                                 /* Bold */
+  letter-spacing: .08em;                            /* Letters slightly spread out */
+  text-transform: uppercase;                        /* Capital letters */
+  color: var(--bs-secondary-color);                 /* Grey */
+}
+
+.swatch {                                           /* Small coloured square for each diet card */
+  display: inline-block;                            /* Sits in line with text */
+  width: 14px; height: 14px;                        /* Size */
+  border-radius: 4px;                               /* Slightly rounded corners */
+  border: 1px solid rgba(0,0,0,.2);                 /* Thin outline so light colours still show */
+  flex: none;                                       /* Never squashed by flexbox */
+}
+.swatch-lg { width: 22px; height: 22px; border-radius: 6px; }   /* Bigger swatch used in the kitchen list */
+
+/* ---------- 5. Step strip ("Now: Main", "Pudding", "All done") ---------- */
+.step { font-size: .9rem; padding: .45em 1em; }     /* Size of each step badge */
+.step-now { background: var(--pmp-pick) !important; color: #1d1600 !important; }  /* Current step: yellow */
+
+.prompt { font-size: clamp(1.6rem, 4vw, 2.4rem); }  /* Big question heading; grows with screen size */
+
+/* ---------- 6. Dish picture tiles (child screen) ---------- */
+.dish-tile {                                        /* One big picture button */
+  width: 100%;                                      /* Fill its grid column */
+  display: flex; flex-direction: column;            /* Picture above name */
+  align-items: center; gap: 10px;                   /* Centre everything, with a gap */
+  padding: 18px 12px 16px;                          /* Inner space */
+  border: 3px solid var(--bs-border-color);         /* Border */
+  border-radius: 20px;                              /* Rounded corners */
+  background: var(--bs-body-bg);                    /* Card background */
+  color: var(--bs-body-color);                      /* Text colour */
+  position: relative;                               /* Lets us place the tick badge in the corner */
+  transition: transform .15s ease, border-color .15s ease;  /* Smooth press/hover effect */
+}
+.dish-tile:hover { border-color: var(--pmp-brand); }       /* Brand-colour border on hover */
+.dish-tile:active { transform: scale(.97); }               /* Shrinks slightly when pressed */
+
+.dish-tile.selected {                               /* The dish the child has tapped */
+  border-color: var(--pmp-pick);                    /* Yellow border */
+  border-width: 5px;                                /* Thicker border */
+  padding: 16px 10px 14px;                          /* Less padding so the tile doesn't grow */
+  background: var(--pmp-pick-soft);                 /* Pale yellow background */
+}
+.dish-tile.selected::after {                        /* Tick badge in the top-right corner */
+  content: "\2713";                                 /* The ✓ character */
+  position: absolute; top: 10px; right: 10px;      /* Corner position */
+  width: 32px; height: 32px;                        /* Size */
+  border-radius: 50%;                               /* Circle */
+  background: var(--pmp-pick);                      /* Yellow */
+  color: #1d1600;                                   /* Dark tick */
+  font-weight: 700; font-size: 1.2rem;              /* Bold, readable tick */
+  display: grid; place-items: center;               /* Centre the tick in the circle */
+}
+
+.dish-media {                                       /* Box holding the emoji or photo */
+  width: 100%; max-width: 100%;                     /* Full width of the tile */
+  aspect-ratio: 4 / 3;                              /* Always 4:3 shape */
+  display: grid; place-items: center;               /* Centre the emoji */
+  border-radius: 12px;                              /* Rounded corners */
+  overflow: hidden;                                 /* Crop photos to the rounded box */
+  background: var(--pmp-tile-bg);                   /* Grey background */
+}
+.dish-media img { width: 100%; height: 100%; object-fit: cover; }  /* Photos fill the box and crop neatly */
+.dish-emoji { font-size: clamp(3.5rem, 9vw, 5rem); line-height: 1; }  /* Big emoji that scales with screen size */
+.dish-name { font-family: var(--pmp-display); font-weight: 700; font-size: 1.25rem; line-height: 1.25; }  /* Dish name text */
+
+/* ---------- 7. Confirm bar (sticks to the bottom of the screen) ---------- */
+.confirm-bar {
+  position: sticky;                                 /* Stays visible while scrolling */
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));  /* 12px above the bottom (and above the iPhone home bar) */
+  z-index: 10;                                      /* Sits above the dish tiles */
+}
+.btn-choose { font-family: var(--pmp-display); font-size: 1.3rem; flex: 1 1 260px; }  /* Big green "I choose..." button */
+
+/* ---------- 8. Kitchen screen ---------- */
+.thumb {                                            /* Small picture in the kitchen dish list */
+  width: 56px; height: 56px;                        /* Size */
+  border-radius: 10px;                              /* Rounded */
+  display: grid; place-items: center;               /* Centre the emoji */
+  background: var(--pmp-tile-bg);                   /* Grey background */
+  overflow: hidden;                                 /* Crop photos */
+  font-size: 2rem;                                  /* Emoji size */
+  flex: none;                                       /* Never squashed */
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }   /* Photos fill the thumbnail */
+
+.editor { border: 2px solid var(--pmp-brand) !important; }     /* Brand-colour border around the add/edit forms */
+.picture-preview { width: 140px; flex: none; }                 /* Preview box in the dish form */
+.picture-preview .dish-emoji { font-size: 3.5rem; }            /* Smaller emoji in the preview */
+
+.emoji-btn { width: 42px; height: 42px; font-size: 1.35rem; line-height: 1; padding: 0; }  /* Emoji picker buttons */
+
+/* ---------- 9. Tally screen ---------- */
+.big-number { font-family: var(--pmp-display); font-size: 2.6rem; font-weight: 700; line-height: 1; }  /* Big total number */
+.tally-progress { height: 34px; font-size: .95rem; }   /* Taller Bootstrap progress bars */
+.tally-progress .progress-bar { background: var(--pmp-brand); }   /* Bars in the brand colour */
+.tabular { font-variant-numeric: tabular-nums; }       /* Numbers line up neatly in columns */
+
+/* ---------- 10. Accessibility ---------- */
+:focus-visible { outline: 3px solid var(--pmp-brand); outline-offset: 2px; }   /* Clear outline for keyboard users */
+@media (prefers-reduced-motion: reduce) {           /* If the user has asked their device for less motion... */
+  * { transition: none !important; animation: none !important; }   /* ...turn off all animations */
+}

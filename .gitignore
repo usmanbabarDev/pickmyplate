@@ -1,0 +1,12 @@
+# Windows system files
+Thumbs.db
+desktop.ini
+
+# Editor and tool settings
+.vscode/
+.idea/
+.claude/
+
+# Secrets (API keys etc.) - never commit these
+.env
+*.key

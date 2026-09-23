@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
+  <!-- Outer yellow circle (the plate rim) -->
+  <circle cx="22" cy="22" r="20" fill="#E9B21C"/>
+  <!-- Inner white circle (the plate) -->
+  <circle cx="22" cy="22" r="13" fill="#FFFFFF" stroke="#17282A" stroke-width="2"/>
+  <!-- Green tick (a choice has been made) -->
+  <path d="M16 22.5l4 4 8-8.5" fill="none" stroke="#2E7D4F" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
