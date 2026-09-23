@@ -1,0 +1,16 @@
+<!doctype html>                                  <!-- Modern HTML5 page -->
+<html lang="en-GB">                              <!-- British English -->
+<head>
+  <meta charset="utf-8">                         <!-- Support all characters -->
+  <title>PickMyPlate</title>                     <!-- Browser tab name -->
+  <!-- This page only sends visitors on to the real app in the pickmyplate/ folder,
+       so the short address https://usmanbabardev.github.io/pickmyplate/ works. -->
+  <meta http-equiv="refresh" content="0; url=pickmyplate/">   <!-- Redirect straight away (works without JavaScript) -->
+  <link rel="canonical" href="pickmyplate/">     <!-- Tells search engines the real page is pickmyplate/ -->
+  <script>location.replace('pickmyplate/' + location.hash);</script>  <!-- Faster redirect; keeps #kitchen or #tally if given -->
+</head>
+<body>
+  <!-- Shown only if the redirect doesn't happen for some reason -->
+  <p><a href="pickmyplate/">Open PickMyPlate</a></p>
+</body>
+</html>
