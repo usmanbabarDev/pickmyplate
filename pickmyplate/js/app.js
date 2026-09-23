@@ -193,11 +193,11 @@ function defaultCards() {
   return [
     { id: 'c-milk',   name: 'Blue · No milk',               color: '#3B7DD8', avoid: ['milk'],                           vegOnly: false },
     { id: 'c-egg',    name: 'Yellow · No eggs',             color: '#E3B505', avoid: ['eggs'],                           vegOnly: false },
-    { id: 'c-gluten', name: 'Green · No gluten',            color: '#3E9B5F', avoid: ['gluten'],                         vegOnly: false },
+    { id: 'c-gluten', name: 'Purple · No gluten',           color: '#8A5CC2', avoid: ['gluten'],                         vegOnly: false },
     { id: 'c-nuts',   name: 'Orange · No nuts or sesame',   color: '#E07B2A', avoid: ['peanuts', 'nuts', 'sesame'],      vegOnly: false },
     { id: 'c-fish',   name: 'Teal · No fish or shellfish',  color: '#1F9AA6', avoid: ['fish', 'crustaceans', 'molluscs'], vegOnly: false },
     { id: 'c-soya',   name: 'Pink · No soya',               color: '#D1508A', avoid: ['soya'],                           vegOnly: false },
-    { id: 'c-veg',    name: 'Purple · Vegetarian',          color: '#8A5CC2', avoid: [],                                 vegOnly: true }
+    { id: 'c-veg',    name: 'Green · Vegetarian',           color: '#3E9B5F', avoid: [],                                 vegOnly: true }
   ];
 }
 
@@ -245,6 +245,13 @@ try { S = JSON.parse(localStorage.getItem(STORAGE_KEY)); }           // Try to l
 catch (e) { /* storage blocked (e.g. private window): ignore */ }
 if (!S || !Array.isArray(S.dishes) || !S.rotation) S = startingData();   // Nothing saved (or broken): start with the school menu
 
+// Update the old default card colours in browsers that saved them (green now means vegetarian).
+// Only touches cards still using the old default name, so staff edits are kept.
+S.cards.forEach(c => {
+  if (c.id === 'c-gluten' && c.name === 'Green · No gluten')  Object.assign(c, { name: 'Purple · No gluten', color: '#8A5CC2' });
+  if (c.id === 'c-veg'    && c.name === 'Purple · Vegetarian') Object.assign(c, { name: 'Green · Vegetarian', color: '#3E9B5F' });
+});
+
 function save() {                                                    // Saves all data to the browser
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save on this device. Changes will last until you close the page.'); }
@@ -261,6 +268,7 @@ let cardDraft = null;                                         // The diet card b
 let pendingDelete = null;                                     // id waiting for "tap again to remove"
 let confirmReset = false;                                     // true = showing "Yes, replace everything?"
 let confirmClear = false;                                     // true = showing "Yes, clear today?"
+let kitchenFilter = null;                                     // Kitchen menu filter: null = all, 'card:<id>' or 'tag:<code>'
 
 const startTab = location.hash.slice(1);                      // Tab name from the address, e.g. index.html#kitchen
 if (['choose', 'kitchen', 'tally'].includes(startTab)) view = startTab;
@@ -290,9 +298,11 @@ const dishesFor = courseKey => S.dishes.filter(d => d.course === courseKey && in
 const isVeg = tags => tags.includes('veg') || tags.includes('vegan');   // Vegetarian (vegan counts too)
 
 // THE SAFETY RULE for one dish + one option (option can be null)
-function optionSafe(d, o, card) {
+// ignoreChecked = true is used ONLY by the kitchen filter, so staff can see what fits a card
+// based on the listed allergens. The child screen always uses the strict rule.
+function optionSafe(d, o, card, ignoreChecked = false) {
   if (!card) return true;                                                    // No diet card = everything is shown
-  if (!d.checked && !S.demo) return false;                                   // Allergens not confirmed = never shown with a card (unless Demo mode is on)
+  if (!d.checked && !S.demo && !ignoreChecked) return false;                 // Allergens not confirmed = never shown with a card (unless Demo mode is on)
   const all = o ? d.allergens.concat(o.allergens) : d.allergens;             // Dish + option allergens together
   if (all.some(a => card.avoid.includes(a))) return false;                   // Contains something the card avoids
   if (card.vegOnly && !(isVeg(d.tags) && (!o || isVeg(o.tags)))) return false;   // Card is vegetarian-only and this isn't
@@ -300,9 +310,9 @@ function optionSafe(d, o, card) {
 }
 
 // Is a dish safe? A dish with options is safe if at least one option is safe
-function safeFor(d, card) {
-  if (d.options.length) return d.options.some(o => optionSafe(d, o, card));
-  return optionSafe(d, null, card);
+function safeFor(d, card, ignoreChecked = false) {
+  if (d.options.length) return d.options.some(o => optionSafe(d, o, card, ignoreChecked));
+  return optionSafe(d, null, card, ignoreChecked);
 }
 
 // Readable name of a pick, e.g. "Jacket potato – Tuna"
@@ -658,9 +668,35 @@ function viewKitchen() {
       ${slot.week !== today.week || slot.day !== today.day ? `<button class="btn btn-sm btn-link" data-act="today">Back to today</button>` : ''}
     </div>`;
 
+  // ----- Filter: which dishes (and which choices inside them) suit the chosen button -----
+  const fCard = kitchenFilter && kitchenFilter.startsWith('card:') ? cardById(kitchenFilter.slice(5)) : null;   // Chosen diet card
+  const fTag = kitchenFilter && kitchenFilter.startsWith('tag:') ? kitchenFilter.slice(4) : null;             // Chosen tag (vegan/halal)
+  const filterOn = !!(fCard || fTag);                                                                         // Is any filter active?
+  const optFits = (d, o) => fCard ? optionSafe(d, o, fCard, true)                     // Card: use the listed allergens (checked or not)
+                          : fTag ? d.tags.includes(fTag) && (!o || o.tags.includes(fTag))   // Tag: dish (and choice) must have the tag
+                          : true;                                                     // No filter: everything fits
+  const fits = d => d.options.length ? d.options.some(o => optFits(d, o)) : optFits(d, null);   // Dish fits if any choice fits
+  const matching = shown.filter(fits).length;                                         // How many dishes fit today
+
+  // Filter buttons: All, every diet card, then Vegan and Halal
+  const filterBar = `
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      <span class="label-caps me-1">Show</span>
+      <button class="btn btn-sm rounded-pill fw-bold ${!filterOn ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="">All dishes</button>
+      ${S.cards.map(c => `
+        <button class="btn btn-sm rounded-pill fw-bold d-inline-flex align-items-center gap-1 ${fCard && fCard.id === c.id ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="card:${c.id}">
+          <i class="swatch" style="background:${esc(c.color)}"></i>${esc(c.name)}
+        </button>`).join('')}
+      ${['vegan', 'halal'].map(t => `
+        <button class="btn btn-sm rounded-pill fw-bold ${fTag === t ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="tag:${t}">${TAG_LABEL[t]}</button>`).join('')}
+    </div>
+    ${filterOn ? `<p class="small text-body-secondary mb-3">Showing <b>${matching} of ${shown.length}</b> dishes that suit
+        <b>${esc(fCard ? fCard.name : TAG_LABEL[fTag])}</b>${fCard ? ', based on the listed allergens' : ''}.
+        Choices that don't suit it are <s>crossed out</s>.${fTag === 'halal' && !matching ? ' No dishes are tagged Halal yet: add the tag with Edit.' : ''}</p>` : ''}`;
+
   // Dish list, grouped by step
   const menu = COURSES.map(c => {
-    const list = shown.filter(d => d.course === c.key);
+    const list = shown.filter(d => d.course === c.key && (!filterOn || fits(d)));   // Only dishes that fit the filter
     return `
       <h3 class="label-caps mt-4 mb-2">${c.label} · ${list.length} ${list.length === 1 ? 'dish' : 'dishes'}</h3>
       <ul class="list-group">
@@ -669,7 +705,7 @@ function viewKitchen() {
             ${dishThumb(d)}
             <div class="flex-grow-1" style="min-width:0">
               <div class="fw-bold">${esc(d.name)} <span class="badge text-bg-light border fw-normal">${whenLabel(d)}</span></div>
-              ${d.options.length ? `<div class="small text-body-secondary">Choices: ${d.options.map(o => esc(o.name)).join(', ')}</div>` : ''}
+              ${d.options.length ? `<div class="small text-body-secondary">Choices: ${d.options.map(o => filterOn && !optFits(d, o) ? `<s title="Doesn't suit this filter">${esc(o.name)}</s>` : esc(o.name)).join(', ')}</div>` : ''}
               ${d.note && !d.checked ? `<div class="small text-body-secondary fst-italic mt-1">Why: ${esc(d.note)}</div>` : ''}
               <div class="d-flex flex-wrap gap-1 mt-1">
                 ${d.checked ? '' : '<span class="badge text-bg-warning">Allergens not checked</span>'}
@@ -712,6 +748,7 @@ function viewKitchen() {
             <button class="btn btn-primary" data-act="newdish">Add a dish</button>
           </div>
           ${picker}
+          ${filterBar}
           ${unchecked ? `<div class="alert alert-warning small py-2">${unchecked} ${unchecked === 1 ? 'dish needs' : 'dishes need'} an allergen check. Red outlined allergens are <b>suggestions only</b>. Open each dish, compare with the official records, then tick the confirmation box.</div>` : ''}
           ${dishDraft ? dishForm() : ''}
           ${menu}
@@ -962,6 +999,7 @@ document.addEventListener('click', e => {
       break;
 
     // ----- Kitchen: which day is shown -----
+    case 'kfilter':  kitchenFilter = btn.dataset.f || null;           dishDraft = null; break;   // Kitchen filter button
     case 'slotweek': slot = { ...slot, week: Number(btn.dataset.w) }; dishDraft = null; break;
     case 'slotday':  slot = { ...slot, day: btn.dataset.d };          dishDraft = null; break;
     case 'today':    slot = todaySlot();                              dishDraft = null; break;
