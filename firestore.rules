@@ -1,0 +1,63 @@
+// =====================================================================
+// PickMyPlate - Firestore security rules
+// Paste these into Firebase → Firestore Database → Rules, then Publish.
+//
+// Who can do what:
+//   Nobody signed in  -> nothing at all
+//   Kitchen manager   -> read and change everything
+//   Class login       -> read the menu, cards, schools and classes,
+//                        and ADD orders for its own school and class only.
+//                        It cannot read other orders or change anything.
+// =====================================================================
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // The kitchen manager has a document at /managers/{their uid} (created by hand in the Firebase console)
+    function isManager() {
+      return signedIn() && exists(/databases/$(database)/documents/managers/$(request.auth.uid));
+    }
+
+    // Class logins have a document at /accounts/{their uid} (created by the manager in the app)
+    function isClass() {
+      return signedIn() && exists(/databases/$(database)/documents/accounts/$(request.auth.uid));
+    }
+    function myAccount() {
+      return get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data;
+    }
+
+    // Manager list: you can only check whether YOU are a manager. Nobody can change it from the app.
+    match /managers/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Class login records: the manager manages them; a class can read its own.
+    match /accounts/{uid} {
+      allow read: if isManager() || (signedIn() && request.auth.uid == uid);
+      allow write: if isManager();
+    }
+
+    // Menu, diet cards, settings, schools and classes: everyone signed in may read; only the manager may change.
+    match /dishes/{id}   { allow read: if isManager() || isClass(); allow write: if isManager(); }
+    match /cards/{id}    { allow read: if isManager() || isClass(); allow write: if isManager(); }
+    match /settings/{id} { allow read: if isManager() || isClass(); allow write: if isManager(); }
+    match /schools/{id}  { allow read: if isManager() || isClass(); allow write: if isManager(); }
+    match /classes/{id}  { allow read: if isManager() || isClass(); allow write: if isManager(); }
+
+    // Orders: a class may only ADD orders labelled with its own school and class.
+    // Only the manager can read, change or remove orders.
+    match /orders/{id} {
+      allow read, update, delete: if isManager();
+      allow create: if isClass()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.schoolId == myAccount().schoolId
+        && request.resource.data.classId == myAccount().classId
+        && request.resource.data.date is string
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 10;
+    }
+  }
+}
