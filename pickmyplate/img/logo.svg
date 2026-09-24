@@ -1,8 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
-  <!-- Outer yellow circle (the plate rim) -->
-  <circle cx="22" cy="22" r="20" fill="#E9B21C"/>
-  <!-- Inner white circle (the plate) -->
-  <circle cx="22" cy="22" r="13" fill="#FFFFFF" stroke="#17282A" stroke-width="2"/>
-  <!-- Green tick (a choice has been made) -->
-  <path d="M16 22.5l4 4 8-8.5" fill="none" stroke="#2E7D4F" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- Rounded square app-icon background (Bayleafcare green #76A35D) -->
+  <rect x="0" y="0" width="120" height="120" rx="28" fill="#76A35D"/>
+  <!-- Fork (left) -->
+  <g fill="#FFFFFF">
+    <rect x="17" y="26" width="3.5" height="20" rx="1.75"/>
+    <rect x="23" y="26" width="3.5" height="20" rx="1.75"/>
+    <rect x="29" y="26" width="3.5" height="20" rx="1.75"/>
+    <path d="M17 44h15.5v2a7.75 7.75 0 0 1-5 7.2V92a2.75 2.75 0 0 1-5.5 0V53.2a7.75 7.75 0 0 1-5-7.2z"/>
+  </g>
+  <!-- Spoon (right) -->
+  <g fill="#FFFFFF">
+    <ellipse cx="96" cy="38" rx="7.5" ry="12"/>
+    <rect x="93.25" y="46" width="5.5" height="48" rx="2.75"/>
+  </g>
+  <!-- Plate: yellow rim, white centre -->
+  <circle cx="60" cy="60" r="27" fill="#E9B21C"/>
+  <circle cx="60" cy="60" r="19" fill="#FFFFFF"/>
+  <!-- Tick in the centre: "choice made" -->
+  <path d="M51 60.5l6.5 6.5 12-13" fill="none" stroke="#2F5A1E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
