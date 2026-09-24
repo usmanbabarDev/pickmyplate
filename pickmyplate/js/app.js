@@ -58,7 +58,7 @@ const CARD_COLOURS = [
 // Emoji offered in the dish picture picker. Add or remove emoji here
 const EMOJIS = ['🍝','🥧','🍗','🍖','🍔','🐟','🍟','🌯','🍛','🌭','🥔','🥪','🥦','🥗','🥕','🌽','🍕','🍲','🥘','🍚','🍎','🍌','🍓','🍐','🍪','🍰','🍫','🌾','🥣','🍮','🧀','🥫'];
 
-const STORAGE_KEY = 'pickmyplate.v3';   // Name under which data is saved in the browser (v3 = researched allergens + diet cards)
+const STORAGE_KEY = 'pickmyplate.v4';   // Name under which data is saved in the browser (v4 = allergens confirmed by kitchen manager)
 
 const uid = () => Math.random().toString(36).slice(2, 9);    // Makes a random id like "k3f9a2x"
 
@@ -70,7 +70,7 @@ function dish(week, day, course, name, emoji, allergens = [], tags = [], extra =
     name, emoji,            // What children see
     photo: null,            // Optional uploaded photo
     allergens, tags,        // Allergens it contains; vegetarian/vegan/halal
-    checked: false,         // false = allergens NOT yet confirmed against official records
+    checked: true,          // true = allergens confirmed by the kitchen manager (untick in the dish form to hide it from diet cards)
     options: [],            // Choices inside the dish (e.g. jacket potato fillings)
     optionPrompt: '',       // Question asked when choosing an option
     note: ''                // Research note for staff: why these allergens were suggested
@@ -208,8 +208,7 @@ function startingData() {
     cards: defaultCards(),                                                   // Diet cards (colours + restriction, never names)
     rotation: { anchor: isoDate(mondayOf(new Date())), anchorWeek: 1 },     // "The week starting <anchor> is Week <anchorWeek>"
     tally: {},                                                               // Today's counts: dish id (or "dishId/optionId") -> number
-    speech: true,                                                            // true = read dish names aloud
-    demo: false                                                              // true = Demo mode (cards use unverified suggestions)
+    speech: true                                                             // true = read dish names aloud
   };
 }
 
@@ -302,7 +301,7 @@ const isVeg = tags => tags.includes('veg') || tags.includes('vegan');   // Veget
 // based on the listed allergens. The child screen always uses the strict rule.
 function optionSafe(d, o, card, ignoreChecked = false) {
   if (!card) return true;                                                    // No diet card = everything is shown
-  if (!d.checked && !S.demo && !ignoreChecked) return false;                 // Allergens not confirmed = never shown with a card (unless Demo mode is on)
+  if (!d.checked && !ignoreChecked) return false;                            // Allergens not confirmed = never shown with a card
   const all = o ? d.allergens.concat(o.allergens) : d.allergens;             // Dish + option allergens together
   if (all.some(a => card.avoid.includes(a))) return false;                   // Contains something the card avoids
   if (card.vegOnly && !(isVeg(d.tags) && (!o || isVeg(o.tags)))) return false;   // Card is vegetarian-only and this isn't
@@ -432,7 +431,7 @@ function viewChoose() {
   const selected = child.optFor ? optById(dishById(child.optFor), child.selected) : dishById(child.selected);
 
   // How many of today's dishes are hidden only because nobody has checked their allergens yet
-  const uncheckedHidden = card && !S.demo && !child.optFor
+  const uncheckedHidden = card && !child.optFor
     ? dishesFor(course.key).filter(d => !d.checked).length
     : 0;
 
@@ -443,7 +442,7 @@ function viewChoose() {
         <h3 class="h5">No ${course.label.toLowerCase()} choices for this diet card today</h3>
         ${uncheckedHidden
           ? `<p class="text-body-secondary mb-3">${uncheckedHidden} ${uncheckedHidden === 1 ? 'dish is' : 'dishes are'} hidden because the allergens haven't been checked yet.<br>
-               <b>Staff:</b> confirm allergens in Kitchen menu, or switch on Demo mode in Settings to try the cards with suggested allergens.</p>
+               <b>Staff:</b> confirm their allergens in Kitchen menu.</p>
              <div class="d-flex flex-wrap gap-2 justify-content-center">
                <button class="btn btn-primary" data-act="view" data-v="kitchen">Go to Kitchen menu</button>
                <button class="btn btn-outline-secondary" data-act="skip">Skip ${course.label.toLowerCase()}</button>
@@ -706,7 +705,7 @@ function viewKitchen() {
             <div class="flex-grow-1" style="min-width:0">
               <div class="fw-bold">${esc(d.name)} <span class="badge text-bg-light border fw-normal">${whenLabel(d)}</span></div>
               ${d.options.length ? `<div class="small text-body-secondary">Choices: ${d.options.map(o => filterOn && !optFits(d, o) ? `<s title="Doesn't suit this filter">${esc(o.name)}</s>` : esc(o.name)).join(', ')}</div>` : ''}
-              ${d.note && !d.checked ? `<div class="small text-body-secondary fst-italic mt-1">Why: ${esc(d.note)}</div>` : ''}
+              ${d.note ? `<div class="small text-body-secondary fst-italic mt-1">Allergen notes: ${esc(d.note)}</div>` : ''}
               <div class="d-flex flex-wrap gap-1 mt-1">
                 ${d.checked ? '' : '<span class="badge text-bg-warning">Allergens not checked</span>'}
                 ${d.allergens.map(a => `<span class="badge ${d.checked ? 'text-bg-danger' : 'border border-danger text-danger'}">${ALLERGEN_LABEL[a]}</span>`).join('')}
@@ -777,11 +776,6 @@ function viewKitchen() {
 
         <section class="card"><div class="card-body">
           <h2 class="h4 mb-3">Settings</h2>
-          <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" id="s-demo" ${S.demo ? 'checked' : ''}>
-            <label class="form-check-label fw-bold" for="s-demo">Demo mode</label>
-          </div>
-          <p class="small text-body-secondary">Lets diet cards use the <b>suggested</b> allergens before staff have checked them. For demonstrations only, never with children. A red warning shows while it's on.</p>
           <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" role="switch" id="s-speech" ${S.speech ? 'checked' : ''}>
             <label class="form-check-label fw-bold" for="s-speech">Read choices aloud</label>
@@ -864,7 +858,6 @@ function render() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
   });
-  document.getElementById('demo-banner').hidden = !S.demo;             // Show the red warning while Demo mode is on
   document.getElementById('app').innerHTML =
     view === 'choose' ? viewChoose() : view === 'kitchen' ? viewKitchen() : viewTally();
 }
@@ -1096,13 +1089,6 @@ document.addEventListener('click', e => {
 
 // Switches and file uploads
 document.addEventListener('change', async e => {
-  if (e.target.id === 's-demo') {                                      // "Demo mode"
-    S.demo = e.target.checked;
-    save();
-    render();                                                          // Redraw so the banner and cards update
-    toast(S.demo ? 'Demo mode is on. Do not use with children.' : 'Demo mode is off');
-    return;
-  }
   if (e.target.id === 's-speech') {                                    // "Read choices aloud"
     S.speech = e.target.checked;
     save();
