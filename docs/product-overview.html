@@ -5,194 +5,197 @@
 <title>PickMyPlate – Product Overview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Lexend:wght@500;700&display=swap">
 <style>
-  @page { size: A4; margin: 16mm 16mm 18mm; }
-  :root { --brand:#2B6A7C; --pick:#E9B21C; --ink:#17282A; --muted:#536869; --line:#C9D6D2; --soft:#EEF3F1; --ok:#2E7D4F; --danger:#B3261E; }
+  @page { size: A4; margin: 15mm 16mm 17mm; }
+  :root { --green:#76A35D; --green-dark:#3E6B2A; --green-soft:#EEF5E9; --ink:#1B2A22; --muted:#56655B; --line:#D6E2D0; --yellow:#E9B21C; --yellow-soft:#FFF6D9; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:"Atkinson Hyperlegible","Segoe UI",sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.5;
-         -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  h1,h2,h3 { font-family:"Lexend","Segoe UI",sans-serif; line-height:1.2; margin:0; }
-  h2 { font-size:17pt; color:var(--brand); margin:0 0 8pt; }
+  body { margin:0; font-family:"Atkinson Hyperlegible","Segoe UI",sans-serif; color:var(--ink); font-size:10.6pt; line-height:1.55; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  h1,h2,h3 { font-family:"Lexend","Segoe UI",sans-serif; line-height:1.2; margin:0; text-wrap:balance; }
+  h2 { font-size:18pt; color:var(--green-dark); margin:0 0 8pt; }
   h3 { font-size:12pt; margin:12pt 0 4pt; }
   p { margin:0 0 7pt; }
-  ul,ol { margin:0 0 8pt; padding-left:16pt; }
-  li { margin-bottom:3pt; }
-  .page { page-break-after:always; }
-  .page:last-child { page-break-after:auto; }
-  .eyebrow { font-size:8pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:4pt; }
-
-  /* Cover */
-  .cover { display:flex; flex-direction:column; min-height:255mm; }
-  .cover-top { display:flex; align-items:center; gap:12pt; }
-  .cover-top img { width:46pt; height:46pt; }
-  .cover-top .name { font-family:"Lexend",sans-serif; font-weight:700; font-size:20pt; }
-  .cover h1 { font-size:30pt; margin:36pt 0 12pt; max-width:150mm; }
-  .cover .lead { font-size:13pt; color:var(--muted); max-width:150mm; }
-  .cover .shot { margin-top:22pt; border:1px solid var(--line); border-radius:8pt; overflow:hidden; }
-  .cover .shot img { display:block; width:100%; }
-  .cover .meta { margin-top:auto; display:flex; gap:24pt; font-size:9pt; color:var(--muted); border-top:1px solid var(--line); padding-top:8pt; }
-  .cover .meta b { display:block; color:var(--ink); }
-
-  /* Blocks */
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10pt 16pt; }
-  .box { background:var(--soft); border-radius:8pt; padding:10pt 12pt; }
-  .box h3 { margin-top:0; }
-  .shot { border:1px solid var(--line); border-radius:6pt; overflow:hidden; margin:6pt 0 10pt; }
+  ul { margin:0 0 8pt; padding-left:15pt; } li { margin-bottom:3pt; }
+  .page { page-break-after:always; } .page:last-child { page-break-after:auto; }
+  .eyebrow { font-size:8pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--green-dark); margin-bottom:4pt; }
+  .lead { font-size:12pt; color:var(--muted); }
+  .shot { border:1px solid var(--line); border-radius:6pt; overflow:hidden; margin:6pt 0 4pt; }
   .shot img { display:block; width:100%; }
-  .caption { font-size:8.5pt; color:var(--muted); margin-top:-6pt; margin-bottom:10pt; }
-  .steps { counter-reset:s; list-style:none; padding:0; }
-  .steps li { counter-increment:s; position:relative; padding-left:24pt; margin-bottom:6pt; }
-  .steps li::before { content:counter(s); position:absolute; left:0; top:0; width:17pt; height:17pt; border-radius:50%;
-                      background:var(--pick); color:#1d1600; font-weight:700; font-size:9pt; display:grid; place-items:center; }
-  table { width:100%; border-collapse:collapse; margin:4pt 0 10pt; font-size:9.5pt; }
+  .cap { font-size:8.5pt; color:var(--muted); margin:0 0 10pt; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10pt 14pt; }
+  .box { background:var(--green-soft); border-radius:8pt; padding:10pt 12pt; }
+  .box h3 { margin-top:0; color:var(--green-dark); }
+  table { width:100%; border-collapse:collapse; margin:4pt 0 10pt; font-size:9.6pt; }
   th,td { text-align:left; padding:5pt 7pt; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { background:var(--soft); font-weight:700; }
-  .pill { display:inline-block; font-size:8pt; font-weight:700; padding:1pt 6pt; border-radius:4pt; color:#fff; }
-  .pill.r { background:var(--danger); } .pill.g { background:var(--ok); } .pill.y { background:var(--pick); color:#1d1600; }
-  .quote { border-left:3pt solid var(--pick); padding:4pt 0 4pt 10pt; font-size:12pt; font-family:"Lexend",sans-serif; margin:10pt 0; }
-  .footer-note { font-size:8.5pt; color:var(--muted); }
+  th { background:var(--green-soft); color:var(--green-dark); }
+  .num { display:inline-grid; place-items:center; width:17pt; height:17pt; border-radius:50%; background:var(--green); color:#fff; font-weight:700; font-size:9pt; margin-right:6pt; flex:none; }
+  .steps { list-style:none; padding:0; } .steps li { display:flex; align-items:flex-start; margin-bottom:6pt; }
+  .pill { display:inline-block; font-size:8pt; font-weight:700; padding:1pt 7pt; border-radius:4pt; background:var(--green); color:#fff; }
+  .cover { min-height:262mm; display:flex; flex-direction:column; }
+  .brand { display:flex; align-items:center; gap:12pt; }
+  .brand img { width:52pt; height:52pt; }
+  .brand .name { font-family:"Lexend",sans-serif; font-weight:700; font-size:21pt; }
+  .cover h1 { font-size:31pt; margin:34pt 0 10pt; max-width:160mm; }
+  .cover .shot { margin-top:18pt; }
+  .meta { margin-top:auto; display:grid; grid-template-columns:repeat(4,1fr); gap:10pt; border-top:1px solid var(--line); padding-top:9pt; font-size:9pt; color:var(--muted); }
+  .meta b { display:block; color:var(--ink); }
+  .foot { font-size:8pt; color:var(--muted); margin-top:10pt; }
 </style>
 </head>
 <body>
 
-<!-- ============ PAGE 1: COVER ============ -->
+<!-- ================= COVER ================= -->
 <section class="page cover">
-  <div class="cover-top">
+  <div class="brand">
     <img src="../pickmyplate/img/logo.svg" alt="">
     <div><div class="name">PickMyPlate</div><div class="eyebrow" style="margin:0">Product overview</div></div>
   </div>
-  <h1>Every child can choose their own lunch.</h1>
-  <p class="lead">A picture-based, read-aloud lunch menu for children in special educational needs (SEND) schools, with allergen-aware diet cards and portion counts for the kitchen.</p>
-  <div class="shot"><img src="screens/choose.png" alt="The Choose lunch screen"></div>
+  <h1>Every child can choose their own lunch</h1>
+  <p class="lead">A picture-based, read-aloud lunch ordering system for SEND schools, with allergy-safe diet cards, class logins and live orders for the kitchen.</p>
+  <div class="shot"><img src="screens/p-child-selected.png" alt="The Choose lunch screen"></div>
   <div class="meta">
-    <div><b>Version</b>Prototype 0.1</div>
-    <div><b>Date</b>September 2026</div>
-    <div><b>Type</b>Web app (works in any browser)</div>
-    <div><b>Price</b>Free and open source</div>
+    <div><b>Version</b>1.0 (online, multi-school)</div>
+    <div><b>Date</b>24 September 2026</div>
+    <div><b>Works on</b>Tablets, computers and phones</div>
+    <div><b>Price</b>Free to use</div>
   </div>
 </section>
 
-<!-- ============ PAGE 2: PROBLEM + SOLUTION ============ -->
+<!-- ================= WHAT IT DOES ================= -->
 <section class="page">
-  <div class="eyebrow">Why it exists</div>
-  <h2>The problem</h2>
-  <p>In SEND schools, many children are autistic, non-verbal, or can't yet read. A written lunch menu doesn't work for them, so an adult often chooses for them. That takes away independence and can cause anxiety at mealtimes.</p>
-  <p>At the same time, school kitchens must manage the UK's 14 allergens and many individual diets safely, often with paper lists.</p>
+  <div class="eyebrow">What it is</div>
+  <h2>What PickMyPlate does</h2>
+  <p>In SEND schools, many children are autistic, non-verbal, or not yet reading, so a written menu doesn't work for them. PickMyPlate shows the day's menu as <b>large real food photos</b>, <b>reads each choice aloud</b>, and takes the child through one simple step at a time. Every order goes straight to the kitchen, labelled with its school and class.</p>
 
-  <div class="grid2" style="margin:10pt 0 14pt">
-    <div class="box"><h3>For children</h3><p style="margin:0">Written menus are hard to read and understand. Unfamiliar food causes anxiety. Children have little say in what they eat.</p></div>
-    <div class="box"><h3>For kitchens</h3><p style="margin:0">Allergen checks rely on memory and paper. It's hard to know how many portions to cook, which leads to food waste.</p></div>
+  <div class="grid2" style="margin:12pt 0">
+    <div class="box"><h3>Classes</h3>Sign in once on the class tablet and see only the lunch screen. Children choose, the order is sent.</div>
+    <div class="box"><h3>Kitchen manager</h3>Sees live orders for every school and class, manages the menu, allergens, diet cards, schools and class logins.</div>
   </div>
 
-  <h2>The solution</h2>
-  <p>PickMyPlate turns choosing lunch into something every child can do on their own:</p>
+  <h3>Features</h3>
   <table>
     <tr><th style="width:32%">Feature</th><th>What it does</th></tr>
-    <tr><td><b>Big picture cards</b></td><td>Each dish is shown as a large picture (emoji or a real photo of the school's food).</td></tr>
-    <tr><td><b>Read aloud</b></td><td>Tapping a dish says its name out loud, so children who can't read can still choose.</td></tr>
-    <tr><td><b>"Now and Next" steps</b></td><td>One course at a time (Main → Pudding → All done), using a routine SEND schools already know.</td></tr>
-    <tr><td><b>Confirm step</b></td><td>A clear "I choose…" button, so one accidental tap doesn't count.</td></tr>
-    <tr><td><b>Diet cards</b></td><td>Colour-coded cards (e.g. <span class="pill r">No milk</span> <span class="pill r">No eggs</span>) hide unsafe dishes. Cards use colours, never children's names.</td></tr>
-    <tr><td><b>14 UK allergens</b></td><td>Kitchen staff tag each dish with the allergens it contains.</td></tr>
-    <tr><td><b>Portion counts</b></td><td>Anonymous counts show how many of each dish to prepare, which reduces waste.</td></tr>
+    <tr><td><b>Real food photos</b></td><td>Every dish and filling has a clear photo, all shown at the same size. The kitchen manager can replace any photo with one of the school's own food.</td></tr>
+    <tr><td><b>Read aloud</b></td><td>Tapping a picture says its name, so children who can't read still know exactly what they're choosing.</td></tr>
+    <tr><td><b>Now and Next steps</b></td><td>Main → Sides → Dessert of the day → All done, one step at a time.</td></tr>
+    <tr><td><b>Choices inside a dish</b></td><td>Jacket potato and sandwich fillings, burger types, and custard or no custard, all chosen from photos.</td></tr>
+    <tr><td><b>Diet cards</b></td><td>Seven colour-coded cards (e.g. <i>Blue · No milk</i>, <i>Green · Vegetarian</i>) hide anything unsafe. Cards use colours, never names.</td></tr>
+    <tr><td><b>The school's real menu</b></td><td>The 3-week rotating menu with the UK's 14 allergens. It moves on to the next week automatically every Monday.</td></tr>
+    <tr><td><b>Live orders</b></td><td>Totals for each school and combined, meals to prepare, and a serving list for every class.</td></tr>
+    <tr><td><b>Secure logins</b></td><td>Each class has its own login. Only the kitchen manager can change the menu, schools and classes.</td></tr>
   </table>
-  <div class="quote">"I work in a SEND school kitchen. I saw children who couldn't read the menu, so I built one they could."</div>
 </section>
 
-<!-- ============ PAGE 3: CHOOSE LUNCH ============ -->
+<!-- ================= CHILDREN ================= -->
 <section class="page">
-  <div class="eyebrow">Screen 1 of 3 · For children</div>
+  <div class="eyebrow">Screen 1 · For children</div>
   <h2>Choose lunch</h2>
-  <p>The screen children use, usually on a tablet with an adult beside them.</p>
-  <div class="shot"><img src="screens/choose.png" alt="Choose lunch screen"></div>
-  <p class="caption">The child sees large pictures of today's mains. The yellow "Now: Main" badge shows where they are.</p>
+  <p>After the class signs in, children see only this screen: no menus, settings or distractions.</p>
+  <div class="grid2">
+    <div>
+      <div class="shot"><img src="screens/p-child-option.png" alt="Choosing a filling"></div>
+      <p class="cap"><b>Choices inside a dish.</b> After choosing a jacket potato, the child picks a filling from photos.</p>
+    </div>
+    <div>
+      <div class="shot"><img src="screens/p-child-done.png" alt="All done screen"></div>
+      <p class="cap"><b>All done.</b> The full meal is shown and read aloud, and the order is sent to the kitchen.</p>
+    </div>
+  </div>
   <h3>How to use it</h3>
   <ol class="steps">
-    <li><b>Pick a diet card (adult).</b> Tap the child's colour card at the top, or leave "No card". Unsafe dishes disappear.</li>
-    <li><b>Choose a main (child).</b> The child taps a picture. It gets a yellow border and tick, and the app says its name aloud.</li>
-    <li><b>Confirm.</b> The child taps the green "I choose…" button. "Say it" repeats the name.</li>
-    <li><b>Choose a pudding.</b> Same as before. "Back" returns to the main.</li>
-    <li><b>All done.</b> Both choices are shown and read aloud. The adult taps "Next child" to reset.</li>
+    <li><span class="num">1</span><span><b>Pick a diet card (adult),</b> if the child has one. Unsafe dishes and fillings disappear automatically.</span></li>
+    <li><span class="num">2</span><span><b>Choose a main (child).</b> Tap a photo: it lights up with a tick and is read aloud. "Say it" repeats it.</span></li>
+    <li><span class="num">3</span><span><b>Confirm</b> with the green "I choose…" button, then pick a filling if the dish has one.</span></li>
+    <li><span class="num">4</span><span><b>Sides:</b> vegetables or salad, or "No thank you".</span></li>
+    <li><span class="num">5</span><span><b>Dessert of the day:</b> the day's dessert or fruit, with or without custard.</span></li>
+    <li><span class="num">6</span><span><b>All done.</b> The order is sent. The adult taps "Next child" to reset the screen.</span></li>
   </ol>
 </section>
 
-<!-- ============ PAGE 4: KITCHEN ============ -->
+<!-- ================= DIET CARDS ================= -->
 <section class="page">
-  <div class="eyebrow">Screen 2 of 3 · For kitchen staff</div>
-  <h2>Kitchen menu</h2>
-  <p>Where staff set up each day's menu and the diet cards.</p>
-  <div class="shot"><img src="screens/kitchen.png" alt="Kitchen menu screen"></div>
-  <p class="caption"><span class="pill r">Red</span> labels show allergens. <span class="pill g">Green</span> labels show Vegetarian, Vegan or Halal.</p>
-  <div class="grid2">
-    <div>
-      <h3>Today's menu</h3>
-      <ul>
-        <li><b>Add a dish:</b> name, course, picture or photo, allergens and dietary tags.</li>
-        <li><b>Edit</b> any dish, or <b>Remove</b> it (tap twice to confirm).</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Diet cards and settings</h3>
-      <ul>
-        <li><b>Add card:</b> choose a colour and the allergens to avoid, with an optional "Vegetarian only".</li>
-        <li>Each card shows how many dishes it allows.</li>
-        <li>Turn reading aloud on or off.</li>
-      </ul>
-    </div>
-  </div>
+  <div class="eyebrow">Allergy safety</div>
+  <h2>Diet cards</h2>
+  <p>Before a child with a dietary need chooses, the adult taps their diet card. PickMyPlate then shows only the dishes and fillings that are safe for that card.</p>
+  <div class="shot"><img src="screens/p-child-card.png" alt="Choosing with the Purple No gluten card"></div>
+  <p class="cap">With <b>Purple · No gluten</b> selected, only the jacket potato is shown. The sandwich and burgers contain gluten, so they are hidden.</p>
+  <table>
+    <tr><th style="width:40%">Card</th><th>Hides anything containing</th></tr>
+    <tr><td>Blue · No milk</td><td>Milk</td></tr>
+    <tr><td>Yellow · No eggs</td><td>Eggs</td></tr>
+    <tr><td>Purple · No gluten</td><td>Gluten (wheat, barley, oats, rye)</td></tr>
+    <tr><td>Orange · No nuts or sesame</td><td>Peanuts, tree nuts, sesame</td></tr>
+    <tr><td>Teal · No fish or shellfish</td><td>Fish, crustaceans, molluscs</td></tr>
+    <tr><td>Pink · No soya</td><td>Soya</td></tr>
+    <tr><td>Green · Vegetarian</td><td>Anything that isn't vegetarian</td></tr>
+  </table>
+  <p>More cards can be added, e.g. a combined card for a child with several allergies. <b>Safety rule:</b> a dish whose allergens haven't been confirmed by the kitchen manager is always hidden from every diet card.</p>
 </section>
 
-<!-- ============ PAGE 5: TALLY + DAY ============ -->
+<!-- ================= ORDERS ================= -->
 <section class="page">
-  <div class="eyebrow">Screen 3 of 3 · For the kitchen</div>
-  <h2>Today's choices</h2>
-  <div class="shot"><img src="screens/tally.png" alt="Today's choices screen"></div>
-  <p class="caption">The total number of children, and how many chose each dish, most popular first.</p>
-  <ul>
-    <li>Use the counts to plan portions and reduce food waste.</li>
-    <li>"Start a new day" resets the counts. No child's name is recorded.</li>
-  </ul>
+  <div class="eyebrow">Screen 2 · For the kitchen manager</div>
+  <h2>Orders</h2>
+  <p>Orders arrive live for each school and in total, with exactly what to prepare and a serving list for every class.</p>
+  <div class="shot"><img src="screens/p-orders.png" alt="Orders screen"></div>
+  <p class="cap">Example data. Meals ordered with a diet card are listed separately, in yellow, so they're kept apart. Mistaken orders can be removed. Any past date can be viewed.</p>
+</section>
 
-  <h2 style="margin-top:14pt">A typical school day</h2>
+<!-- ================= KITCHEN MENU ================= -->
+<section class="page">
+  <div class="eyebrow">Screen 3 · For the kitchen manager</div>
+  <h2>Kitchen menu</h2>
+  <p>The whole menu is managed here: dishes, photos, fillings, allergens, dietary tags, diet cards and the menu rotation.</p>
+  <div class="shot"><img src="screens/p-kitchen.png" alt="Kitchen menu screen"></div>
+  <p class="cap">"Show" filter buttons display the dishes that suit each diet card. Fillings that don't suit it are crossed out.</p>
+  <ul>
+    <li><b>Add or edit a dish:</b> name, step, week and day, photo (or emoji), allergens, tags, choices inside the dish (each with its own photo) and allergen notes.</li>
+    <li><b>Menu rotation:</b> set which week of the 3-week menu it is once. It then moves on by itself every Monday.</li>
+    <li><b>Read aloud</b> can be switched on or off for every class device.</li>
+  </ul>
+</section>
+
+<!-- ================= SCHOOLS, CLASSES & SECURITY ================= -->
+<section class="page">
+  <div class="eyebrow">Screen 4 · For the kitchen manager</div>
+  <h2>Schools, classes and security</h2>
+  <div class="shot"><img src="screens/p-setup.png" alt="Schools and classes screen"></div>
+  <p class="cap">Add schools and classes, and create or replace class logins.</p>
   <table>
-    <tr><th style="width:22%">When</th><th style="width:22%">Who</th><th>What they do</th></tr>
-    <tr><td>Morning</td><td>Kitchen staff</td><td>Set today's dishes in <b>Kitchen menu</b>.</td></tr>
-    <tr><td>Before lunch</td><td>Class staff and children</td><td>Each child chooses in <b>Choose lunch</b>, with their diet card selected first.</td></tr>
-    <tr><td>Before serving</td><td>Kitchen staff</td><td>Check <b>Today's choices</b> to see how much of each dish to prepare.</td></tr>
-    <tr><td>Next day</td><td>Kitchen staff</td><td>Press "Start a new day" and update the menu.</td></tr>
+    <tr><th style="width:32%">Area</th><th>How it works</th></tr>
+    <tr><td><b>Class logins</b></td><td>Each class has its own username and password. Forgotten passwords are replaced instantly, and the old login stops working.</td></tr>
+    <tr><td><b>What classes can do</b></td><td>Choose lunch and send orders for their own class only. They can't see other orders or change anything.</td></tr>
+    <tr><td><b>Kitchen manager</b></td><td>One manager login controls the menu, schools, classes and orders.</td></tr>
+    <tr><td><b>No children's names</b></td><td>Orders store only the school, class, meal and diet card colour.</td></tr>
+    <tr><td><b>Data in the UK</b></td><td>Stored in Google Firebase's London data centre, protected by security rules.</td></tr>
   </table>
 </section>
 
-<!-- ============ PAGE 6: SAFETY, TECH, ROADMAP ============ -->
+<!-- ================= TECH & ROADMAP ================= -->
 <section class="page">
   <div class="eyebrow">Behind the scenes</div>
-  <h2>Privacy and safety</h2>
-  <ul>
-    <li><b>No personal data.</b> No children's names or medical records are stored. Diet cards use colours and codes only.</li>
-    <li><b>Stays on the device.</b> Data is saved only in the browser being used. Nothing is sent to a server.</li>
-    <li><b>People stay in charge.</b> Allergen information must always be checked against the kitchen's official records.</li>
-    <li><b>Prototype status.</b> Currently tested with sample data only.</li>
-  </ul>
-
-  <h2 style="margin-top:12pt">How it's built</h2>
+  <h2>How it's built</h2>
   <table>
     <tr><th style="width:32%">Part</th><th>Technology</th></tr>
-    <tr><td>Structure</td><td>HTML5</td></tr>
-    <tr><td>Design and layout</td><td>Bootstrap 5.3 with custom CSS, dark mode, and phone/tablet layouts</td></tr>
+    <tr><td>Pages and design</td><td>HTML5, Bootstrap 5.3 and custom CSS. Works on tablets, phones and computers, with dark mode.</td></tr>
     <tr><td>Behaviour</td><td>Plain JavaScript</td></tr>
-    <tr><td>Read aloud</td><td>The browser's built-in Web Speech API (British English voice)</td></tr>
-    <tr><td>Fonts</td><td>Lexend and Atkinson Hyperlegible, both designed for readability</td></tr>
-    <tr><td>Hosting</td><td>No server needed; can be published free with GitHub Pages</td></tr>
+    <tr><td>Logins and database</td><td>Google Firebase (Authentication and Firestore), London region, with security rules</td></tr>
+    <tr><td>Read aloud</td><td>The browser's built-in speech (British English)</td></tr>
+    <tr><td>Hosting</td><td>GitHub Pages</td></tr>
+    <tr><td>Photos</td><td>Unsplash (free licence), replaceable with the school's own photos</td></tr>
   </table>
 
-  <h2 style="margin-top:12pt">Roadmap</h2>
+  <h2 style="margin-top:14pt">Roadmap</h2>
   <table>
-    <tr><th style="width:22%">Stage</th><th>Plan</th></tr>
-    <tr><td><span class="pill g">Now</span></td><td>Working prototype. Gather feedback from SENCOs, speech and language therapists and kitchen staff.</td></tr>
-    <tr><td><span class="pill y">Next</span></td><td>Publish online; make it installable on tablets (PWA); printable picture menus; one menu shared across devices.</td></tr>
-    <tr><td><span class="pill y">AI</span></td><td>Recipe → allergen suggestions (always confirmed by staff); simple descriptions of new foods; dish pictures.</td></tr>
-    <tr><td><span class="pill y">Later</span></td><td>Texture levels (IDDSI) for children with swallowing difficulties; more languages; app store releases; care homes and learning disability services.</td></tr>
+    <tr><th style="width:18%">Stage</th><th>Plan</th></tr>
+    <tr><td><span class="pill">Now</span></td><td>Live for School A and School B. Pilot with one class in each school, and gather feedback.</td></tr>
+    <tr><td><span class="pill">Next</span></td><td>Install on class tablets like an app. Printable picture menus for classrooms.</td></tr>
+    <tr><td><span class="pill">Then</span></td><td>Texture levels for children with swallowing difficulties. Menus in other languages.</td></tr>
+    <tr><td><span class="pill">Later</span></td><td>Allergen suggestions to help staff (always confirmed by a person). Versions for children's homes.</td></tr>
   </table>
-  <p class="footer-note">PickMyPlate is a free, non-commercial prototype.</p>
+
+  <h3>Try it</h3>
+  <p style="font-family:'Lexend',sans-serif;font-size:12pt;color:var(--green-dark)">https://usmanbabardev.github.io/pickmyplate/</p>
+  <p>Access is login-only. Ask the kitchen manager for a demo class login.</p>
+  <p class="foot">© 2026 Usman Babar. PickMyPlate, built by Usman for Bayleafcare. Free to use. Food photos from Unsplash, used under the Unsplash License. All screens show example data.</p>
 </section>
 
 </body>

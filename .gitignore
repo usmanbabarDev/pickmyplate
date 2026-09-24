@@ -10,3 +10,7 @@ desktop.ini
 # Secrets (API keys etc.) - never commit these
 .env
 *.key
+
+# Internal company documents - never publish
+docs/proposal.html
+PickMyPlate-Proposal.pdf

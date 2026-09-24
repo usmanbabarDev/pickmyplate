@@ -9,7 +9,7 @@ allergens, and use anonymous "diet cards" to hide dishes that aren't safe for a 
 Each class signs in with its own login, and every order reaches the kitchen live, labelled with
 its school and class, so the kitchen knows exactly what to cook and where to take it.
 
-![Choose lunch screen](docs/screens/choose.png)
+![Choose lunch screen](docs/screens/p-child-selected.png)
 
 ## Why I built this
 
