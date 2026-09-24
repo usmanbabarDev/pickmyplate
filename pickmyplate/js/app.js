@@ -519,10 +519,16 @@ function dishForm() {
             <input class="form-control mb-2" id="f-oprompt" name="optionPrompt" maxlength="80" value="${esc(d.optionPrompt)}">` : ''}
           ${d.options.map((o, i) => `
             <div class="border rounded p-2 mb-2">
-              <div class="d-flex gap-2 mb-2">
-                <input class="form-control form-control-sm" style="max-width:4.5rem" id="o-${i}-emoji" name="o-${i}-emoji" value="${esc(o.emoji)}" aria-label="Choice ${i + 1} picture (emoji)">
+              <div class="d-flex gap-2 mb-2 align-items-center">
+                <span id="o-${i}-preview">${dishThumb(o)}</span>                            <!-- Photo, or the emoji if there's no photo -->
+                <input class="form-control form-control-sm" style="max-width:4.5rem" id="o-${i}-emoji" name="o-${i}-emoji" value="${esc(o.emoji)}" aria-label="Choice ${i + 1} emoji (used when there's no photo)">
                 <input class="form-control form-control-sm" id="o-${i}-name" name="o-${i}-name" value="${esc(o.name)}" placeholder="Choice name" aria-label="Choice ${i + 1} name">
                 <button type="button" class="btn btn-sm btn-outline-danger" data-act="delopt" data-i="${i}">Remove</button>
+              </div>
+              <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                <label class="small fw-bold" for="o-${i}-photo">Photo</label>
+                <input class="form-control form-control-sm opt-photo" style="max-width:16rem" type="file" accept="image/*" id="o-${i}-photo" data-i="${i}">
+                <button type="button" class="btn btn-sm btn-outline-danger" id="o-${i}-clearphoto" data-act="clearoptphoto" data-i="${i}" ${o.photo ? '' : 'hidden'}>Remove photo</button>
               </div>
               <details><summary class="small">Allergens and tags for this choice (${o.allergens.map(a => ALLERGEN_LABEL[a]).join(', ') || 'none'})</summary>
                 <div class="small mt-2">${allergenChecks(`o-${i}-alg`, `o-${i}-alg`, o.allergens, 'row-cols-2 row-cols-sm-4')}</div>
@@ -569,6 +575,7 @@ function syncDishDraft() {                                    // Copy typed valu
       id: o.id,
       name: String(f.get(`o-${i}-name`) || '').trim(),
       emoji: String(f.get(`o-${i}-emoji`) || '').trim() || '🍽️',
+      photo: o.photo || null,                                  // Keep the choice's photo (set by the photo upload)
       allergens: f.getAll(`o-${i}-alg`),
       tags: f.getAll(`o-${i}-tag`)
     }))
@@ -1063,6 +1070,13 @@ document.addEventListener('click', async e => {
           document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
           btn.hidden = true;
           return;
+        case 'clearoptphoto': {                                // Remove a choice's photo (its emoji shows again)
+          const i = Number(btn.dataset.i);
+          dishDraft.options[i].photo = null;
+          document.getElementById(`o-${i}-preview`).innerHTML = dishThumb(dishDraft.options[i]);
+          btn.hidden = true;
+          return;
+        }
 
         case 'newcard': cardDraft = { id: uid(), name: '', color: CARD_COLOURS[7][0], avoid: [], vegOnly: false, order: S.cards.length }; dishDraft = null; break;
         case 'editcard': cardDraft = JSON.parse(JSON.stringify(cardById(id))); dishDraft = null; break;
@@ -1119,6 +1133,14 @@ document.addEventListener('change', async e => {
     toast(t.checked ? 'Reading aloud is on' : 'Reading aloud is off');
   }
   if (t.id === 'o-date' && t.value) { ordersDate = t.value; listenOrders(); render(); }
+  if (t.classList.contains('opt-photo') && t.files[0]) {       // Photo chosen for a choice inside the dish
+    const i = Number(t.dataset.i);
+    try {
+      dishDraft.options[i].photo = await readPhoto(t.files[0]);
+      document.getElementById(`o-${i}-preview`).innerHTML = dishThumb(dishDraft.options[i]);
+      document.getElementById(`o-${i}-clearphoto`).hidden = false;
+    } catch (err) { toast('That file could not be read as a picture. Try a JPG or PNG.'); }
+  }
   if (t.id === 'f-photo' && t.files[0]) {
     try {
       dishDraft.photo = await readPhoto(t.files[0]);
