@@ -128,7 +128,7 @@ if (CONFIGURED) {
       console.error(err);
     }
     if (!role) {                                              // Signed in, but not allowed in
-      loginError = 'This login has no access. Ask the kitchen manager.';
+      loginError = 'This login has no access. Ask the head teacher.';
       await auth.signOut();
       return;
     }
@@ -352,7 +352,7 @@ function viewNotConfigured() {
 function viewLogin() {
   return `<form class="card mx-auto" style="max-width:420px" id="loginForm"><div class="card-body p-4">
     <h1 class="h4 mb-1">Sign in</h1>
-    <p class="text-body-secondary small">Classes: use the username and password from the kitchen manager.</p>
+    <p class="text-body-secondary small">Classes: use the username and password from the head teacher.</p>
     ${loginError ? `<div class="alert alert-danger py-2 small">${esc(loginError)}</div>` : ''}
     <label class="form-label fw-bold" for="l-user">Username</label>
     <input class="form-control mb-3" id="l-user" name="user" autocomplete="username" required autocapitalize="none" placeholder="e.g. a-aa">
