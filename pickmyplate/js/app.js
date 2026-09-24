@@ -1,385 +1,368 @@
 /* =====================================================================
    PickMyPlate - app.js
    All the behaviour of the app. It works like this:
-     1. DATA      - allergens, days, courses and the school's 3-week menu
-     2. STORAGE   - load/save the menu in the browser (localStorage)
-     3. HELPERS   - small reusable functions (safety rules, dates, speech)
-     4. SCREENS   - functions that build the HTML for each tab
-     5. EVENTS    - what happens when someone clicks, changes or saves
+     1. FIREBASE  - connect to the online database and login service
+     2. STATE     - what's loaded and what's on screen
+     3. LOGIN     - who is signed in: kitchen manager or a class
+     4. DATA      - load (live) and save the menu, cards, schools, classes, orders
+     5. HELPERS   - safety rules, dates, speech, small bits of HTML
+     6. SCREENS   - Sign in, Choose lunch, Kitchen menu, Orders, Schools & classes
+     7. EVENTS    - what happens when someone clicks, changes or saves
+   The fixed lists and the school menu live in menu-data.js.
    Every screen is rebuilt by render() whenever something changes.
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
    0. DARK MODE - follow the device's light/dark setting
    --------------------------------------------------------------------- */
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');   // Asks the device whether dark mode is on
-function applyTheme() {                                                // Sets Bootstrap's theme on the <html> tag
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
   document.documentElement.setAttribute('data-bs-theme', darkQuery.matches ? 'dark' : 'light');
 }
-applyTheme();                                                          // Set the theme when the page loads
-darkQuery.addEventListener('change', applyTheme);                      // Update it if the device setting changes
+applyTheme();
+darkQuery.addEventListener('change', applyTheme);
 
 /* ---------------------------------------------------------------------
-   1. DATA
+   1. FIREBASE
+   --------------------------------------------------------------------- */
+const CONFIGURED = !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey);   // Has firebase-config.js been filled in?
+let auth = null, db = null;                                   // Login service and database (null until configured)
+if (CONFIGURED) {
+  firebase.initializeApp(window.FIREBASE_CONFIG);             // Connect to your Firebase project
+  auth = firebase.auth();                                     // Login service
+  db = firebase.firestore();                                  // Database
+}
+
+// Class logins are usernames like "a-aa". Firebase needs an email, so we add a fake,
+// never-used domain behind the scenes. (".invalid" is reserved and can never be a real address.)
+const CLASS_DOMAIN = 'pickmyplate.invalid';
+const loginEmail = name => name.includes('@') ? name.trim() : name.trim().toLowerCase() + '@' + CLASS_DOMAIN;
+const USERNAME_RULE = /^[a-z0-9][a-z0-9-]{2,29}$/;            // 3-30 characters: lowercase letters, numbers, dashes
+
+/* ---------------------------------------------------------------------
+   2. STATE
    --------------------------------------------------------------------- */
 
-// The UK's 14 allergens that must be declared by law. Format: [code, label shown on screen]
-const ALLERGENS = [
-  ['celery', 'Celery'], ['gluten', 'Gluten'], ['crustaceans', 'Crustaceans'], ['eggs', 'Eggs'],
-  ['fish', 'Fish'], ['lupin', 'Lupin'], ['milk', 'Milk'], ['molluscs', 'Molluscs'],
-  ['mustard', 'Mustard'], ['nuts', 'Tree nuts'], ['peanuts', 'Peanuts'], ['sesame', 'Sesame'],
-  ['soya', 'Soya'], ['sulphites', 'Sulphites']
-];
-const ALLERGEN_LABEL = Object.fromEntries(ALLERGENS);   // Lookup, e.g. ALLERGEN_LABEL.nuts -> "Tree nuts"
+// Everything loaded from the database (kept up to date live)
+const S = {
+  dishes: [],                                                 // The menu
+  cards: [],                                                  // Diet cards
+  settings: { rotation: null, speech: true },                 // Menu rotation and read-aloud
+  schools: [],                                                // { id, name }
+  classes: [],                                                // { id, schoolId, name, username, uid }
+  orders: []                                                  // Orders for the date shown on the Orders screen
+};
 
-// Dietary tags a dish can have. Format: [code, label]
-const TAGS = [['veg', 'Vegetarian'], ['vegan', 'Vegan'], ['halal', 'Halal']];
-const TAG_LABEL = Object.fromEntries(TAGS);             // Lookup, e.g. TAG_LABEL.veg -> "Vegetarian"
+let user = null;                    // The signed-in Firebase user (null = nobody)
+let role = null;                    // 'manager' or 'class'
+let account = null;                 // For a class login: { schoolId, classId }
+let loading = CONFIGURED;           // true while checking the login / loading data
+let loaded = new Set();             // Which collections have arrived at least once
+let unsubs = [];                    // Functions that stop the live listeners
+let unsubOrders = null;             // Stops the orders listener
+let loginError = '';                // Message shown on the sign-in screen
+let busy = false;                   // true while signing in or saving something slow
 
-// School days. Format: [code, label]
-const DAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday']];
-const DAY_LABEL = Object.fromEntries(DAYS);             // Lookup, e.g. DAY_LABEL.mon -> "Monday"
-const WEEKS = 3;                                        // The menu repeats every 3 weeks
+let view = 'choose';                // Current screen: 'choose', 'kitchen', 'orders', 'setup'
+let slot = null;                    // Which menu day is showing: { week, day } (set once settings load)
+let child = newChild();             // The current child's progress
+let dishDraft = null;               // Dish being added/edited (null = form closed)
+let cardDraft = null;               // Diet card being added/edited
+let schoolDraft = null;             // School being added/renamed
+let classDraft = null;              // Class being added/edited
+let pendingDelete = null;           // id waiting for "tap again to remove"
+let confirmReset = false;           // true = showing "Yes, replace the menu?"
+let kitchenFilter = null;           // Kitchen filter: null, 'card:<id>' or 'tag:<code>'
+let ordersDate = null;              // Date shown on the Orders screen ("YYYY-MM-DD")
+let ordersScope = 'all';            // 'all' or a school id
 
-// The steps a child goes through, in order.
-// optional: true = the child can say "No thank you" and skip this step
-const COURSES = [
-  { key: 'main',    label: 'Main',    prompt: 'What would you like for your main?' },                                    // Step 1
-  { key: 'sides',   label: 'Sides',   prompt: 'Would you like vegetables or salad?', optional: true, skipLabel: 'No thank you' },  // Step 2
-  { key: 'pudding', label: 'Dessert', prompt: 'What would you like for dessert?' }                                       // Step 3
-];
-
-// Colours available for diet cards. Format: [hex colour, name]
-const CARD_COLOURS = [
-  ['#3B7DD8', 'Blue'], ['#E3B505', 'Yellow'], ['#3E9B5F', 'Green'], ['#1F9AA6', 'Teal'],
-  ['#E07B2A', 'Orange'], ['#8A5CC2', 'Purple'], ['#D1508A', 'Pink'], ['#C0392B', 'Red'], ['#6C757D', 'Grey']
-];
-
-// Emoji offered in the dish picture picker. Add or remove emoji here
-const EMOJIS = ['🍝','🥧','🍗','🍖','🍔','🐟','🍟','🌯','🍛','🌭','🥔','🥪','🥦','🥗','🥕','🌽','🍕','🍲','🥘','🍚','🍎','🍌','🍓','🍐','🍪','🍰','🍫','🌾','🥣','🍮','🧀','🥫'];
-
-const STORAGE_KEY = 'pickmyplate.v4';   // Name under which data is saved in the browser (v4 = allergens confirmed by kitchen manager)
-
-const uid = () => Math.random().toString(36).slice(2, 9);    // Makes a random id like "k3f9a2x"
-
-// Creates one dish. week: 0 = every week, 1-3 = that week. day: 'all' = every day, or 'mon'...'fri'
-function dish(week, day, course, name, emoji, allergens = [], tags = [], extra = {}) {
-  return Object.assign({
-    id: uid(),              // Unique id
-    week, day, course,      // When it's served and which step it belongs to
-    name, emoji,            // What children see
-    photo: null,            // Optional uploaded photo
-    allergens, tags,        // Allergens it contains; vegetarian/vegan/halal
-    checked: true,          // true = allergens confirmed by the kitchen manager (untick in the dish form to hide it from diet cards)
-    options: [],            // Choices inside the dish (e.g. jacket potato fillings)
-    optionPrompt: '',       // Question asked when choosing an option
-    note: ''                // Research note for staff: why these allergens were suggested
-  }, extra);
-}
-
-// Creates one choice inside a dish (e.g. "Tuna" inside "Jacket potato")
-const opt = (name, emoji, allergens = [], tags = []) => ({ id: uid(), name, emoji, allergens, tags });
-
-// Custard choice used for every dessert of the day
-const custard = () => ({
-  options: [opt('With custard', '🥣', ['milk'], ['veg']), opt('No custard', '🙅', [], ['veg', 'vegan'])],
-  optionPrompt: 'Would you like custard?'
-});
-
-// The school's 3-week menu (Food Menu 2026-2027).
-// ALLERGENS BELOW ARE RESEARCHED SUGGESTIONS, based on what these dishes TYPICALLY contain
-// in UK catering. Real allergens depend on the exact products and recipes the kitchen uses.
-// Every dish starts as "not checked" until kitchen staff confirm it against the official allergen matrix.
-function schoolMenu() {
-  const V = ['veg'], VV = ['veg', 'vegan'];                  // Shortcuts for common tag lists
-
-  // Research notes reused by several dishes
-  const N = {
-    roast: 'Yorkshire puddings contain wheat, egg and milk. Gravy granules usually contain wheat and sometimes celery. Stuffing usually contains wheat and may contain celery or sulphites.',
-    quorn: 'Quorn mince and pieces contain egg white; some Quorn products also contain milk or wheat. Check the pack used.',
-    quornRoast: 'Quorn contains egg white; some Quorn roasts contain milk. Yorkshire puddings contain wheat, egg and milk. Gravy and stuffing usually contain wheat and may contain celery or sulphites.',
-    curry: 'Curry powders and pastes often contain mustard and celery. Some sauces also contain milk (yoghurt/cream) or nuts.',
-    korma: 'Korma sauces traditionally contain cream or yoghurt (milk) and ground almonds or cashews (tree nuts). Many schools use a nut-free recipe; confirm with the kitchen.',
-    cake: 'Cakes usually contain wheat flour, eggs and butter (milk). Margarine and chocolate often contain soya.',
-    crumble: 'Crumble topping is flour and butter (gluten, milk). Oats in the topping also count as gluten.',
-    batter: 'Batter and breadcrumbs contain wheat. Some batters contain milk or egg. Shared fryers can carry other allergens.',
-    plantFish: 'Plant-based fish alternatives usually contain wheat and soya; some brands contain mustard.'
-  };
-
-  return [
-    // ----- Every day, every week -----
-    dish(0, 'all', 'main', 'Jacket potato', '🥔', [], V, {
-      optionPrompt: 'What would you like in your jacket potato?',
-      note: 'Plain potato has no listed allergens. Butter or spread adds milk (and sometimes soya). Coleslaw and tuna mayo contain egg and usually mustard (mayonnaise).',
-      options: [opt('Cheese', '🧀', ['milk'], V), opt('Cheese and beans', '🥫', ['milk'], V), opt('Coleslaw', '🥗', ['eggs', 'mustard'], V), opt('Tuna', '🐟', ['fish', 'eggs', 'mustard'])]
-    }),
-    dish(0, 'all', 'main', 'Sandwich', '🥪', ['gluten', 'soya'], V, {
-      optionPrompt: 'What would you like in your sandwich?',
-      note: 'Bread contains wheat; many UK sliced breads also contain soya flour and may contain sesame traces. Butter or spread adds milk.',
-      options: [opt('Cheese', '🧀', ['milk'], V), opt('Turkey Ham', '🍖', []), opt('Jam', '🍓', [], VV)]
-    }),
-    dish(0, 'all', 'sides', 'Seasonal vegetables', '🥦', [], VV, { note: 'Plain vegetables have no listed allergens, but celery IS one of the 14 allergens. If celery is in the mix, add it. Butter glaze adds milk.' }),
-    dish(0, 'all', 'sides', 'Mixed salad', '🥗', [], VV, { note: 'Plain salad has no listed allergens. Dressings often contain mustard and sulphites (vinegar); celery in the salad counts as an allergen.' }),
-    dish(0, 'all', 'pudding', 'Fruit', '🍎', [], VV, { note: 'Fresh fruit has no listed allergens. Dried fruit often contains sulphites.' }),
-
-    // ----- Week 1 -----
-    dish(1, 'mon', 'main', 'Pasta with meatballs', '🍝', ['gluten', 'eggs', 'celery', 'sulphites'], [], { note: 'Pasta is wheat. Meatballs usually contain wheat rusk or breadcrumbs, sometimes egg, and often a sulphite preservative. Tomato sauce may contain celery.' }),
-    dish(1, 'mon', 'main', 'Vegetarian meatballs', '🍝', ['gluten', 'soya', 'eggs'], V, { note: 'Pasta is wheat. Vegetarian meatballs are usually soya- or Quorn-based (Quorn contains egg) with wheat binder. Check the brand.' }),
-    dish(1, 'tue', 'main', 'Cowboy pie', '🥧', ['gluten', 'milk', 'sulphites'], [], { note: 'Usually sausages and beans under mash. Sausages usually contain wheat rusk and sulphites. Mash usually contains milk or butter.' }),
-    dish(1, 'tue', 'main', 'Cheese and potato pie', '🥧', ['gluten', 'milk', 'eggs'], V, { note: 'Cheese = milk. Pastry = wheat, often glazed with egg. If it is mash-topped with no pastry, gluten and egg may not apply.' }),
-    dish(1, 'wed', 'main', 'Potatoes, Chicken, Yorkshire puddings and Stuffing, Gravy.', '🍗', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], [], { note: N.roast }),
-    dish(1, 'wed', 'main', 'Quorn roast dinner', '🥘', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], V, { note: N.quornRoast }),
-    dish(1, 'thu', 'main', 'Burger and wedges', '🍔', ['gluten', 'sesame', 'soya'], [], {
-      optionPrompt: 'Chicken burger or beef burger?',
-      note: 'Burger buns contain wheat and often sesame and soya. Beef burgers often contain wheat rusk and sulphites. Chicken burgers are usually coated in wheat breadcrumbs. Coated wedges may contain wheat.',
-      options: [opt('Chicken burger', '🍗', []), opt('Beef burger', '🍔', ['sulphites'])]
-    }),
-    dish(1, 'thu', 'main', 'Veggie burger and wedges', '🍔', ['gluten', 'soya', 'sesame'], V, { note: 'Bun contains wheat and often sesame and soya. Veggie burgers vary widely: some contain egg, milk, celery or mustard. Check the brand.' }),
-    dish(1, 'fri', 'main', 'Fish and chips', '🐟', ['fish', 'gluten'], [], { note: N.batter }),
-    dish(1, 'fri', 'main', 'Plant-based fish and chips', '🍟', ['gluten', 'soya'], VV, { note: N.plantFish }),
-    dish(1, 'mon', 'pudding', 'Flapjack', '🌾', ['gluten', 'milk'], V, { ...custard(), note: 'Oats count as a cereal containing gluten under UK law. Butter = milk.' }),
-    dish(1, 'tue', 'pudding', 'Banana cake', '🍰', ['gluten', 'eggs', 'milk'], V, { ...custard(), note: N.cake }),
-    dish(1, 'wed', 'pudding', 'Cookie', '🍪', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: N.cake + ' Check for nut traces.' }),
-    dish(1, 'thu', 'pudding', 'Apple crumble', '🥧', ['gluten', 'milk'], V, { ...custard(), note: N.crumble }),
-    dish(1, 'fri', 'pudding', 'Brownie', '🍫', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: N.cake + ' Check for nut traces.' }),
-
-    // ----- Week 2 -----
-    dish(2, 'mon', 'main', 'Spaghetti bolognese', '🍝', ['gluten', 'celery'], [], { note: 'Spaghetti is wheat (egg pasta would add egg). Bolognese sauce and stock often contain celery; stock cubes may contain wheat.' }),
-    dish(2, 'mon', 'main', 'Quorn bolognese', '🍝', ['gluten', 'eggs', 'celery'], V, { note: N.quorn + ' Spaghetti is wheat. Sauce often contains celery.' }),
-    dish(2, 'tue', 'main', 'Chicken curry and rice', '🍛', ['celery', 'mustard'], [], { note: N.curry }),
-    dish(2, 'tue', 'main', 'Quorn curry and rice', '🍛', ['eggs', 'celery', 'mustard'], V, { note: N.quorn + ' ' + N.curry }),
-    dish(2, 'wed', 'main', 'Potatoes,  Yorkshire puddings and Stuffing, Gravy.', '🍖', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], [], { note: N.roast }),
-    dish(2, 'wed', 'main', 'Quorn roast dinner', '🥘', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], V, { note: N.quornRoast }),
-    dish(2, 'thu', 'main', 'Chicken wrap and wedges', '🌯', ['gluten', 'eggs', 'mustard'], [], { note: 'Tortilla wraps are wheat. Mayonnaise adds egg and usually mustard. Coated chicken or wedges may add more wheat.' }),
-    dish(2, 'thu', 'main', 'Plant-based chicken wrap and wedges', '🌯', ['gluten', 'soya', 'mustard'], VV, { note: 'Tortilla wraps are wheat. Plant-based chicken is usually soya and wheat. Vegan mayo is usually egg-free but may contain mustard.' }),
-    dish(2, 'fri', 'main', 'Fish cakes and chips', '🐟', ['fish', 'gluten', 'milk', 'eggs'], [], { note: 'Fish cakes usually contain wheat breadcrumbs and milk, and often egg or mustard. ' + N.batter }),
-    dish(2, 'fri', 'main', 'Cauliflower cheese grills and chips', '🥦', ['gluten', 'milk', 'mustard'], V, { note: 'Cheese = milk. Coating = wheat. Cheese sauces often contain mustard.' }),
-    dish(2, 'mon', 'pudding', 'Flapjack', '🌾', ['gluten', 'milk'], V, { ...custard(), note: 'Oats count as a cereal containing gluten under UK law. Butter = milk.' }),
-    dish(2, 'tue', 'pudding', 'Jam sponge cake', '🍰', ['gluten', 'eggs', 'milk'], V, { ...custard(), note: N.cake + ' Some jams contain sulphites.' }),
-    dish(2, 'wed', 'pudding', 'Cookie', '🍪', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: N.cake + ' Check for nut traces.' }),
-    dish(2, 'thu', 'pudding', 'Berry crumble', '🥧', ['gluten', 'milk'], V, { ...custard(), note: N.crumble }),
-    dish(2, 'fri', 'pudding', 'Blondie', '🍫', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: 'White chocolate contains milk and often soya. ' + N.cake + ' Check for nut traces.' }),
-
-    // ----- Week 3 -----
-    dish(3, 'mon', 'main', 'Lasagne and garlic bread', '🍝', ['gluten', 'eggs', 'milk', 'celery'], [], { note: 'Lasagne sheets are wheat and often egg. White sauce = milk (sometimes mustard). Meat sauce often contains celery. Garlic bread = wheat and butter.' }),
-    dish(3, 'mon', 'main', 'Vegetable lasagne and garlic bread', '🍝', ['gluten', 'eggs', 'milk', 'celery'], V, { note: 'Lasagne sheets are wheat and often egg. White sauce = milk. Vegetable sauce may contain celery. Garlic bread = wheat and butter.' }),
-    dish(3, 'tue', 'main', 'Chicken korma and rice', '🍛', ['milk', 'nuts'], [], { note: N.korma }),
-    dish(3, 'tue', 'main', 'Quorn korma and rice', '🍛', ['eggs', 'milk', 'nuts'], V, { note: N.quorn + ' ' + N.korma }),
-    dish(3, 'wed', 'main', 'Roast beef dinner', '🍖', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], [], { note: N.roast }),
-    dish(3, 'wed', 'main', 'Quorn roast dinner', '🥘', ['gluten', 'eggs', 'milk', 'celery', 'sulphites'], V, { note: N.quornRoast }),
-    dish(3, 'thu', 'main', 'Nuggets or hot dog, with wedges', '🌭', ['gluten'], [], {
-      optionPrompt: 'Chicken nuggets or a beef hot dog?',
-      note: 'Nugget coating is wheat. Hot dog rolls are wheat and may contain sesame or soya. Beef sausages often contain sulphites and sometimes mustard.',
-      options: [opt('Chicken nuggets', '🍗', []), opt('Beef hot dog', '🌭', ['sulphites', 'soya'])]
-    }),
-    dish(3, 'thu', 'main', 'Veggie nuggets or veggie hot dog', '🌭', ['gluten', 'soya'], V, {
-      optionPrompt: 'Veggie nuggets or a veggie hot dog?',
-      note: 'Veggie nuggets and sausages are usually soya or Quorn (egg) with a wheat coating. Some contain milk. Check the brand.',
-      options: [opt('Veggie nuggets', '🥕', [], V), opt('Veggie hot dog', '🌭', [], V)]
-    }),
-    dish(3, 'fri', 'main', 'Fish fingers and chips', '🐟', ['fish', 'gluten'], [], { note: N.batter }),
-    dish(3, 'fri', 'main', 'Plant-based fish fingers and chips', '🍟', ['gluten', 'soya'], VV, { note: N.plantFish }),
-    dish(3, 'mon', 'pudding', 'Flapjack', '🌾', ['gluten', 'milk'], V, { ...custard(), note: 'Oats count as a cereal containing gluten under UK law. Butter = milk.' }),
-    dish(3, 'tue', 'pudding', 'Chocolate sponge cake', '🍰', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: N.cake }),
-    dish(3, 'wed', 'pudding', 'Cookie', '🍪', ['gluten', 'eggs', 'milk', 'soya'], V, { ...custard(), note: N.cake + ' Check for nut traces.' }),
-    dish(3, 'thu', 'pudding', 'Pear crumble', '🥧', ['gluten', 'milk'], V, { ...custard(), note: N.crumble }),
-    dish(3, 'fri', 'pudding', 'Cornflake tart', '🥧', ['gluten', 'eggs', 'milk'], V, { ...custard(), note: 'Pastry = wheat and butter. Cornflakes contain barley malt (gluten). Egg may be in the pastry or filling. Some jams contain sulphites.' })
-  ];
-}
-
-// Diet cards for the most common school food restrictions.
-// One card per restriction. For a child with several allergies, staff add a combined card (e.g. "Red · No milk or eggs").
-function defaultCards() {
-  return [
-    { id: 'c-milk',   name: 'Blue · No milk',               color: '#3B7DD8', avoid: ['milk'],                           vegOnly: false },
-    { id: 'c-egg',    name: 'Yellow · No eggs',             color: '#E3B505', avoid: ['eggs'],                           vegOnly: false },
-    { id: 'c-gluten', name: 'Purple · No gluten',           color: '#8A5CC2', avoid: ['gluten'],                         vegOnly: false },
-    { id: 'c-nuts',   name: 'Orange · No nuts or sesame',   color: '#E07B2A', avoid: ['peanuts', 'nuts', 'sesame'],      vegOnly: false },
-    { id: 'c-fish',   name: 'Teal · No fish or shellfish',  color: '#1F9AA6', avoid: ['fish', 'crustaceans', 'molluscs'], vegOnly: false },
-    { id: 'c-soya',   name: 'Pink · No soya',               color: '#D1508A', avoid: ['soya'],                           vegOnly: false },
-    { id: 'c-veg',    name: 'Green · Vegetarian',           color: '#3E9B5F', avoid: [],                                 vegOnly: true }
-  ];
-}
-
-// Returns a fresh copy of all starting data (used on first run and by "Restore school menu")
-function startingData() {
-  return {
-    dishes: schoolMenu(),                                                    // The 3-week menu
-    cards: defaultCards(),                                                   // Diet cards (colours + restriction, never names)
-    rotation: { anchor: isoDate(mondayOf(new Date())), anchorWeek: 1 },     // "The week starting <anchor> is Week <anchorWeek>"
-    tally: {},                                                               // Today's counts: dish id (or "dishId/optionId") -> number
-    speech: true                                                             // true = read dish names aloud
-  };
+function newChild() {               // A blank "child choosing" state
+  return { cardId: null, step: 0, picks: {}, selected: null, optFor: null };
 }
 
 /* ---------------------------------------------------------------------
-   DATES - work out which week of the 3-week menu it is
+   DATES - which week of the 3-week menu it is
    --------------------------------------------------------------------- */
-function mondayOf(date) {                                     // Returns the Monday of the week containing "date"
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());   // Copy the date (without the time)
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));            // Go back to Monday (getDay: Sunday=0 ... Saturday=6)
+function mondayOf(date) {                                     // Monday of the week containing "date"
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
 }
-function isoDate(d) {                                         // Formats a date as "2026-09-21"
+function isoDate(d) {                                         // "2026-09-24"
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+const rotation = () => S.settings.rotation || { anchor: isoDate(mondayOf(new Date())), anchorWeek: 1 };
 function weekFor(date) {                                      // Which menu week (1-3) a date falls in
-  const anchor = new Date(S.rotation.anchor + 'T00:00:00');   // The Monday staff set as a known week
-  const weeksApart = Math.round((mondayOf(date) - mondayOf(anchor)) / (7 * 864e5));   // Whole weeks between them
-  return (((S.rotation.anchorWeek - 1 + weeksApart) % WEEKS) + WEEKS) % WEEKS + 1;   // Wrap around 1 -> 2 -> 3 -> 1
+  const r = rotation();
+  const weeksApart = Math.round((mondayOf(date) - mondayOf(new Date(r.anchor + 'T00:00:00'))) / (7 * 864e5));
+  return (((r.anchorWeek - 1 + weeksApart) % WEEKS) + WEEKS) % WEEKS + 1;
 }
-function todaySlot() {                                        // Today's week and day (weekends show next Monday)
-  const d = new Date();                                       // Today
-  const weekend = d.getDay() === 0 || d.getDay() === 6;       // Saturday or Sunday?
+function servingDay() {                                       // Next school day (weekends move to Monday)
+  const d = new Date();
   if (d.getDay() === 6) d.setDate(d.getDate() + 2);           // Saturday -> Monday
   if (d.getDay() === 0) d.setDate(d.getDate() + 1);           // Sunday -> Monday
-  return { week: weekFor(d), day: DAYS[(d.getDay() + 6) % 7][0], weekend };
+  return d;
+}
+function todaySlot() {                                        // Menu week/day for the next school day
+  const d = servingDay();
+  return { week: weekFor(d), day: DAYS[(d.getDay() + 6) % 7][0], weekend: d.toDateString() !== new Date().toDateString() };
 }
 
 /* ---------------------------------------------------------------------
-   2. STORAGE - keep the menu on this device
+   3. LOGIN - work out who is signed in
    --------------------------------------------------------------------- */
-let S = null;                                                        // "S" holds all saved data
-try { S = JSON.parse(localStorage.getItem(STORAGE_KEY)); }           // Try to load saved data from the browser
-catch (e) { /* storage blocked (e.g. private window): ignore */ }
-if (!S || !Array.isArray(S.dishes) || !S.rotation) S = startingData();   // Nothing saved (or broken): start with the school menu
-
-// Update the old default card colours in browsers that saved them (green now means vegetarian).
-// Only touches cards still using the old default name, so staff edits are kept.
-S.cards.forEach(c => {
-  if (c.id === 'c-gluten' && c.name === 'Green · No gluten')  Object.assign(c, { name: 'Purple · No gluten', color: '#8A5CC2' });
-  if (c.id === 'c-veg'    && c.name === 'Purple · Vegetarian') Object.assign(c, { name: 'Green · Vegetarian', color: '#3E9B5F' });
-});
-
-function save() {                                                    // Saves all data to the browser
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); }
-  catch (e) { toast('Could not save on this device. Changes will last until you close the page.'); }
+if (CONFIGURED) {
+  auth.onAuthStateChanged(async u => {
+    stopListeners();                                          // Forget the previous user's data
+    user = u; role = null; account = null;
+    if (!u) { loading = false; render(); return; }            // Nobody signed in: show the sign-in screen
+    loading = true; render();
+    try {
+      const m = await db.collection('managers').doc(u.uid).get();          // Is this the kitchen manager?
+      if (m.exists) role = 'manager';
+      else {
+        const a = await db.collection('accounts').doc(u.uid).get();        // Is this a class login?
+        if (a.exists) { role = 'class'; account = a.data(); }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    if (!role) {                                              // Signed in, but not allowed in
+      loginError = 'This login has no access. Ask the kitchen manager.';
+      await auth.signOut();
+      return;
+    }
+    loginError = '';
+    view = role === 'manager' ? 'orders' : 'choose';          // Manager starts on Orders; classes on Choose lunch
+    child = newChild();
+    startListeners();
+  });
 }
 
 /* ---------------------------------------------------------------------
-   Screen state (NOT saved - resets when the page reloads)
+   4. DATA - live loading and saving
    --------------------------------------------------------------------- */
-let view = 'choose';                                          // Which tab is showing: 'choose', 'kitchen' or 'tally'
-let slot = todaySlot();                                       // Which menu day is showing: { week, day }
-let child = newChild();                                       // The current child's progress
-let dishDraft = null;                                         // The dish being added/edited (null = form closed)
-let cardDraft = null;                                         // The diet card being added/edited (null = form closed)
-let pendingDelete = null;                                     // id waiting for "tap again to remove"
-let confirmReset = false;                                     // true = showing "Yes, replace everything?"
-let confirmClear = false;                                     // true = showing "Yes, clear today?"
-let kitchenFilter = null;                                     // Kitchen menu filter: null = all, 'card:<id>' or 'tag:<code>'
+const withId = doc => ({ id: doc.id, ...doc.data() });        // Database document -> plain object with its id
 
-const startTab = location.hash.slice(1);                      // Tab name from the address, e.g. index.html#kitchen
-if (['choose', 'kitchen', 'tally'].includes(startTab)) view = startTab;
+// Redraw after background changes, but never while a form is open (it would wipe what's being typed)
+function softRender() {
+  if (dishDraft || cardDraft || schoolDraft || classDraft) return;
+  render();
+}
 
-function newChild() {                                         // A blank "child choosing" state
-  return { cardId: null, step: 0, picks: {}, selected: null, optFor: null };
-  // picks: { main: {d: dishId, o: optionId or null}, ... }   optFor: dish id while choosing its options
+function listen(name, query, apply) {                         // Start one live listener
+  unsubs.push(query.onSnapshot(snap => {
+    apply(snap);
+    loaded.add(name);
+    if (loading && ['dishes', 'cards', 'settings', 'schools', 'classes'].every(n => loaded.has(n))) {
+      loading = false;                                        // Everything needed has arrived
+      slot = todaySlot();
+      render();
+    } else if (!loading) softRender();
+  }, err => {
+    console.error(name, err);
+    toast('Could not load ' + name + ' (' + err.code + ').');
+  }));
+}
+
+function startListeners() {
+  loaded = new Set();
+  listen('dishes', db.collection('dishes'), snap => { S.dishes = snap.docs.map(withId); });
+  listen('cards', db.collection('cards'), snap => { S.cards = snap.docs.map(withId).sort((a, b) => (a.order ?? 99) - (b.order ?? 99)); });
+  listen('settings', db.collection('settings').doc('app'), doc => { S.settings = Object.assign({ rotation: null, speech: true }, doc.exists ? doc.data() : {}); });
+  listen('schools', db.collection('schools'), snap => { S.schools = snap.docs.map(withId).sort((a, b) => a.name.localeCompare(b.name)); });
+  listen('classes', db.collection('classes'), snap => { S.classes = snap.docs.map(withId).sort((a, b) => a.name.localeCompare(b.name)); });
+  if (role === 'manager') { ordersDate = isoDate(servingDay()); listenOrders(); }
+}
+
+function listenOrders() {                                     // Live orders for the chosen date (manager only)
+  if (unsubOrders) unsubOrders();
+  S.orders = [];
+  unsubOrders = db.collection('orders').where('date', '==', ordersDate).onSnapshot(snap => {
+    S.orders = snap.docs.map(withId).sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+    if (view === 'orders') softRender();
+  }, err => { console.error(err); toast('Could not load orders (' + err.code + ').'); });
+}
+
+function stopListeners() {
+  unsubs.forEach(f => f()); unsubs = [];
+  if (unsubOrders) { unsubOrders(); unsubOrders = null; }
+  Object.assign(S, { dishes: [], cards: [], schools: [], classes: [], orders: [], settings: { rotation: null, speech: true } });
+}
+
+const strip = obj => { const { id, ...rest } = obj; return rest; };   // Remove "id" before saving (it's the document name)
+
+// Saving (the manager's changes). Each returns a promise; errors show a message.
+async function run(promise, okMessage) {
+  try { await promise; if (okMessage) toast(okMessage); return true; }
+  catch (err) { console.error(err); toast('Could not save: ' + (err.message || err.code)); return false; }
+}
+const saveDish = d => run(db.collection('dishes').doc(d.id).set(strip(d)), 'Saved ' + d.name);
+const saveCard = c => run(db.collection('cards').doc(c.id).set(strip(c)), 'Saved ' + c.name);
+const saveSettings = patch => run(db.collection('settings').doc('app').set(patch, { merge: true }));
+
+// Load the school menu and diet cards into an empty database (or replace them)
+async function loadSchoolMenu(replace) {
+  const batch = db.batch();
+  if (replace) {
+    S.dishes.forEach(d => batch.delete(db.collection('dishes').doc(d.id)));
+    S.cards.forEach(c => batch.delete(db.collection('cards').doc(c.id)));
+  }
+  schoolMenu().forEach(d => batch.set(db.collection('dishes').doc(d.id), strip(d)));
+  defaultCards().forEach((c, i) => batch.set(db.collection('cards').doc(c.id), { ...strip(c), order: i }));
+  if (!S.settings.rotation) batch.set(db.collection('settings').doc('app'), { rotation: rotation(), speech: true }, { merge: true });
+  return run(batch.commit(), 'School menu loaded');
+}
+
+// Create a class login. Uses a second, separate Firebase connection so the manager stays signed in.
+let creatorAuth = null;
+async function createClassLogin(username, password) {
+  if (!creatorAuth) {
+    creatorAuth = firebase.initializeApp(window.FIREBASE_CONFIG, 'class-creator').auth();
+    await creatorAuth.setPersistence(firebase.auth.Auth.Persistence.NONE);   // Don't remember this sign-in
+  }
+  const cred = await creatorAuth.createUserWithEmailAndPassword(loginEmail(username), password);
+  await creatorAuth.signOut();
+  return cred.user.uid;
+}
+
+// Save a child's finished choice as an order (class logins only)
+function placeOrder() {
+  const card = cardById(child.cardId);
+  const items = COURSES.map(c => {
+    const p = child.picks[c.key];
+    if (!p) return { course: c.key, skipped: true };
+    const d = dishById(p.d), o = optById(d, p.o);
+    return { course: c.key, dishId: d.id, dish: d.name, optionId: o ? o.id : null, option: o ? o.name : null };
+  });
+  return db.collection('orders').add({
+    date: isoDate(servingDay()),                              // The school day this lunch is for
+    schoolId: account.schoolId,
+    classId: account.classId,
+    uid: user.uid,
+    card: card ? card.name : null,                            // Diet card used (so the kitchen can take extra care)
+    items,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
 }
 
 /* ---------------------------------------------------------------------
-   3. HELPERS
+   5. HELPERS
    --------------------------------------------------------------------- */
 
 // Makes text safe to put inside HTML (same job as PHP's htmlspecialchars)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const dishById = id => S.dishes.find(d => d.id === id);          // Finds a dish by id
-const cardById = id => S.cards.find(c => c.id === id) || null;    // Finds a diet card by id
-const optById = (d, id) => d && d.options.find(o => o.id === id); // Finds an option inside a dish
+const dishById = id => S.dishes.find(d => d.id === id);
+const cardById = id => S.cards.find(c => c.id === id) || null;
+const optById = (d, id) => d && (d.options || []).find(o => o.id === id);
+const schoolById = id => S.schools.find(s => s.id === id);
+const classById = id => S.classes.find(c => c.id === id);
+const schoolName = id => (schoolById(id) || { name: 'Unknown school' }).name;
+const className = id => (classById(id) || { name: 'Unknown class' }).name;
 
-// Is this dish served on this week/day?
 const inSlot = (d, week, day) => (d.week === 0 || d.week === week) && (d.day === 'all' || d.day === day);
-
-// Dishes for a course on the currently shown day
 const dishesFor = courseKey => S.dishes.filter(d => d.course === courseKey && inSlot(d, slot.week, slot.day));
+const isVeg = tags => tags.includes('veg') || tags.includes('vegan');
 
-const isVeg = tags => tags.includes('veg') || tags.includes('vegan');   // Vegetarian (vegan counts too)
-
-// THE SAFETY RULE for one dish + one option (option can be null)
-// ignoreChecked = true is used ONLY by the kitchen filter, so staff can see what fits a card
-// based on the listed allergens. The child screen always uses the strict rule.
+// THE SAFETY RULE for one dish + one option (option can be null).
+// ignoreChecked = true is used ONLY by the kitchen filter; the child screen is always strict.
 function optionSafe(d, o, card, ignoreChecked = false) {
   if (!card) return true;                                                    // No diet card = everything is shown
-  if (!d.checked && !ignoreChecked) return false;                            // Allergens not confirmed = never shown with a card
+  if (!d.checked && !ignoreChecked) return false;                            // Allergens not confirmed = hidden from diet cards
   const all = o ? d.allergens.concat(o.allergens) : d.allergens;             // Dish + option allergens together
   if (all.some(a => card.avoid.includes(a))) return false;                   // Contains something the card avoids
-  if (card.vegOnly && !(isVeg(d.tags) && (!o || isVeg(o.tags)))) return false;   // Card is vegetarian-only and this isn't
+  if (card.vegOnly && !(isVeg(d.tags) && (!o || isVeg(o.tags)))) return false;   // Vegetarian card and this isn't
   return true;
 }
-
-// Is a dish safe? A dish with options is safe if at least one option is safe
-function safeFor(d, card, ignoreChecked = false) {
-  if (d.options.length) return d.options.some(o => optionSafe(d, o, card, ignoreChecked));
+function safeFor(d, card, ignoreChecked = false) {                          // Safe if the dish (or any of its choices) is safe
+  if ((d.options || []).length) return d.options.some(o => optionSafe(d, o, card, ignoreChecked));
   return optionSafe(d, null, card, ignoreChecked);
 }
 
-// Readable name of a pick, e.g. "Jacket potato – Tuna"
-function pickName(p) {
+function pickName(p) {                                        // "Jacket potato – Tuna"
   const d = dishById(p.d), o = optById(d, p.o);
   return d ? d.name + (o ? ' – ' + o.name : '') : '';
 }
+const itemName = it => it.dish + (it.option ? ' – ' + it.option : '');   // Same, for a saved order item
 
-// Reads text aloud using the browser's built-in voice
-function say(text) {
-  if (!S.speech || !('speechSynthesis' in window)) return;   // Speech off or not supported
+function say(text) {                                          // Read text aloud
+  if (!S.settings.speech || !('speechSynthesis' in window)) return;
   try {
-    speechSynthesis.cancel();                                 // Stop anything already being spoken
+    speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-GB';                                         // British English voice
-    u.rate = 0.9;                                             // Slightly slower, easier to follow
+    u.lang = 'en-GB'; u.rate = 0.9;
     speechSynthesis.speak(u);
-  } catch (e) { /* speech failed: ignore */ }
+  } catch (e) { /* ignore */ }
 }
 
-// Shows a short pop-up message (Bootstrap toast)
-function toast(message) {
+function toast(message) {                                     // Short pop-up message
   document.getElementById('toast-text').textContent = message;
-  bootstrap.Toast.getOrCreateInstance(document.getElementById('toast'), { delay: 2600 }).show();
+  bootstrap.Toast.getOrCreateInstance(document.getElementById('toast'), { delay: 3200 }).show();
 }
 
-// Picture HTML: the photo if there is one, otherwise the emoji
-function dishMedia(d) {
-  const inner = d.photo
-    ? `<img src="${d.photo}" alt="">`
-    : `<span class="dish-emoji" aria-hidden="true">${esc(d.emoji || '🍽️')}</span>`;
+function dishMedia(d) {                                       // Photo, or the emoji
+  const inner = d.photo ? `<img src="${d.photo}" alt="">` : `<span class="dish-emoji" aria-hidden="true">${esc(d.emoji || '🍽️')}</span>`;
   return `<span class="dish-media">${inner}</span>`;
 }
-function dishThumb(d) {                                       // Small picture for kitchen lists
+function dishThumb(d) {
   return `<span class="thumb" aria-hidden="true">${d.photo ? `<img src="${d.photo}" alt="">` : esc(d.emoji || '🍽️')}</span>`;
 }
-
-// Big picture button used on the child screen (for dishes and options)
-function tile(item, act, selected) {
+function tile(item, act, selected) {                          // Big picture button on the child screen
   return `<div class="col">
     <button class="dish-tile ${selected ? 'selected' : ''}" data-act="${act}" data-id="${item.id}" aria-pressed="${selected}">
       ${dishMedia(item)}<span class="dish-name">${esc(item.name)}</span>
     </button></div>`;
 }
-
-// Label for when a dish is served, e.g. "Every day" or "Week 2 · Tuesday"
-function whenLabel(d) {
+function whenLabel(d) {                                       // "Every day" or "Week 2 · Tuesday"
   if (d.week === 0 && d.day === 'all') return 'Every day';
-  const w = d.week === 0 ? 'Every week' : 'Week ' + d.week;
-  const day = d.day === 'all' ? 'every day' : DAY_LABEL[d.day];
-  return w + ' · ' + day;
+  return (d.week === 0 ? 'Every week' : 'Week ' + d.week) + ' · ' + (d.day === 'all' ? 'every day' : DAY_LABEL[d.day]);
 }
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
 const SPEAKER_ICON = `<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
 /* ---------------------------------------------------------------------
-   4a. SCREEN: Choose lunch (for children)
+   6a. SCREEN: Setup needed / Sign in / Loading
+   --------------------------------------------------------------------- */
+function viewNotConfigured() {
+  return `<div class="card mx-auto" style="max-width:560px"><div class="card-body p-4">
+    <h1 class="h4">Setup needed</h1>
+    <p>PickMyPlate isn't connected to its online database yet.</p>
+    <p class="mb-0">Kitchen manager: follow <b>SETUP.md</b> in the project to create the Firebase project and paste its settings into <code>js/firebase-config.js</code>.</p>
+  </div></div>`;
+}
+
+function viewLogin() {
+  return `<form class="card mx-auto" style="max-width:420px" id="loginForm"><div class="card-body p-4">
+    <h1 class="h4 mb-1">Sign in</h1>
+    <p class="text-body-secondary small">Classes: use the username and password from the kitchen manager.</p>
+    ${loginError ? `<div class="alert alert-danger py-2 small">${esc(loginError)}</div>` : ''}
+    <label class="form-label fw-bold" for="l-user">Username</label>
+    <input class="form-control mb-3" id="l-user" name="user" autocomplete="username" required autocapitalize="none" placeholder="e.g. a-aa">
+    <label class="form-label fw-bold" for="l-pass">Password</label>
+    <input class="form-control mb-4" id="l-pass" name="pass" type="password" autocomplete="current-password" required>
+    <button class="btn btn-primary w-100" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in'}</button>
+  </div></form>`;
+}
+
+const viewLoading = () => `<div class="text-center text-body-secondary py-5"><div class="spinner-border mb-3" role="status"></div><p>Loading…</p></div>`;
+
+/* ---------------------------------------------------------------------
+   6b. SCREEN: Choose lunch (classes; the manager sees a preview)
    --------------------------------------------------------------------- */
 function viewChoose() {
-  const card = cardById(child.cardId);                                // Selected diet card (or null)
-  const today = todaySlot();                                          // Real today, to spot previews
+  if (!S.dishes.length) {
+    return `<div class="card p-4 text-center"><h2 class="h5">Today's menu isn't ready yet</h2><p class="text-body-secondary mb-0">Please ask the kitchen manager.</p></div>`;
+  }
+  const card = cardById(child.cardId);
+  const today = todaySlot();
   const isToday = slot.week === today.week && slot.day === today.day;
 
-  // Which day's menu this is
-  const dayLine = `<p class="label-caps mb-2">${DAY_LABEL[slot.day]} · Week ${slot.week} menu
-    ${!isToday ? '<span class="badge text-bg-warning ms-1">Preview</span>' : today.weekend ? '<span class="badge text-bg-secondary ms-1">Next school day</span>' : ''}</p>`;
+  const who = role === 'class'
+    ? `<p class="label-caps mb-2">${esc(schoolName(account.schoolId))} · ${esc(className(account.classId))} · ${DAY_LABEL[slot.day]}${today.weekend ? ' (next school day)' : ''}</p>`
+    : `<div class="alert alert-info py-2 small">Preview: this is what classes see. Orders are <b>not</b> saved from the manager account. Showing ${DAY_LABEL[slot.day]}, Week ${slot.week}${isToday ? '' : ' (not today)'}.</div>`;
 
-  // Diet card buttons
   const cardBar = `
     <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
       <span class="label-caps me-1">Diet card</span>
@@ -391,67 +374,54 @@ function viewChoose() {
         </button>`).join('')}
     </div>`;
 
-  // "Now / Next" step strip
   const steps = `
     <div class="d-flex flex-wrap gap-2 mb-3" aria-label="Steps">
-      ${COURSES.map((c, i) => {
-        const cls = i < child.step ? 'text-bg-success' : i === child.step ? 'step-now' : 'text-bg-secondary';
-        return `<span class="badge rounded-pill step ${cls}">${i === child.step ? 'Now: ' : ''}${c.label}</span>`;
-      }).join('')}
+      ${COURSES.map((c, i) => `<span class="badge rounded-pill step ${i < child.step ? 'text-bg-success' : i === child.step ? 'step-now' : 'text-bg-secondary'}">${i === child.step ? 'Now: ' : ''}${c.label}</span>`).join('')}
       <span class="badge rounded-pill step ${child.step >= COURSES.length ? 'step-now' : 'text-bg-secondary'}">All done</span>
     </div>`;
 
-  // --- Finished ---
-  if (child.step >= COURSES.length) {
-    const picked = COURSES.map(c => child.picks[c.key]).filter(Boolean);        // Skipped steps removed
-    return dayLine + cardBar + steps + `
+  if (child.step >= COURSES.length) {                                         // Finished
+    const picked = COURSES.map(c => child.picks[c.key]).filter(Boolean);
+    return who + cardBar + steps + `
       <section class="text-center py-3">
         <h1 class="display-5 fw-bold">All done!</h1>
         <p class="text-body-secondary">${picked.length ? 'You chose:' : 'No choices made.'}</p>
-        <div class="row row-cols-2 row-cols-md-3 g-3 justify-content-center mb-4">
+        <div class="row row-cols-2 row-cols-md-3 g-3 justify-content-center mb-3">
           ${picked.map(p => { const d = dishById(p.d), o = optById(d, p.o);
             return `<div class="col"><div class="dish-tile">${dishMedia(o || d)}<span class="dish-name">${esc(pickName(p))}</span></div></div>`; }).join('')}
         </div>
-        <button class="btn btn-primary btn-lg px-5" data-act="nextchild">Next child</button>
+        <p class="small ${child.saved === 'error' ? 'text-danger fw-bold' : 'text-body-secondary'}">${
+          role !== 'class' ? 'Preview only: not saved.'
+          : child.saved === 'saving' ? 'Sending order…'
+          : child.saved === 'error' ? 'The order was NOT sent. Check the internet connection and tap Try again.'
+          : 'Order sent to the kitchen ✓'}</p>
+        ${child.saved === 'error' ? `<button class="btn btn-danger btn-lg px-4 me-2" data-act="retry">Try again</button>` : ''}
+        <button class="btn btn-primary btn-lg px-5" data-act="nextchild" ${child.saved === 'saving' ? 'disabled' : ''}>Next child</button>
       </section>`;
   }
 
-  const course = COURSES[child.step];                                 // Current step
-  let prompt, items, act;                                             // What to ask, which tiles, which click action
-  if (child.optFor) {                                                 // Choosing inside a dish (e.g. a filling)
+  const course = COURSES[child.step];
+  let prompt, items, act;
+  if (child.optFor) {                                                        // Choosing inside a dish
     const d = dishById(child.optFor);
     prompt = d.optionPrompt || `What would you like with your ${d.name.toLowerCase()}?`;
-    items = d.options.filter(o => optionSafe(d, o, card));           // Only safe options
+    items = d.options.filter(o => optionSafe(d, o, card));
     act = 'pickopt';
-  } else {                                                            // Choosing a dish
+  } else {
     prompt = course.prompt;
-    items = dishesFor(course.key).filter(d => safeFor(d, card));      // Only safe dishes for today
+    items = dishesFor(course.key).filter(d => safeFor(d, card));
     act = 'pick';
   }
   const selected = child.optFor ? optById(dishById(child.optFor), child.selected) : dishById(child.selected);
 
-  // How many of today's dishes are hidden only because nobody has checked their allergens yet
-  const uncheckedHidden = card && !child.optFor
-    ? dishesFor(course.key).filter(d => !d.checked).length
-    : 0;
-
-  // Picture grid, or a message if nothing is safe
   const grid = items.length
     ? `<div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">${items.map(it => tile(it, act, child.selected === it.id)).join('')}</div>`
     : `<div class="card text-center p-4">
         <h3 class="h5">No ${course.label.toLowerCase()} choices for this diet card today</h3>
-        ${uncheckedHidden
-          ? `<p class="text-body-secondary mb-3">${uncheckedHidden} ${uncheckedHidden === 1 ? 'dish is' : 'dishes are'} hidden because the allergens haven't been checked yet.<br>
-               <b>Staff:</b> confirm their allergens in Kitchen menu.</p>
-             <div class="d-flex flex-wrap gap-2 justify-content-center">
-               <button class="btn btn-primary" data-act="view" data-v="kitchen">Go to Kitchen menu</button>
-               <button class="btn btn-outline-secondary" data-act="skip">Skip ${course.label.toLowerCase()}</button>
-             </div>`
-          : `<p class="text-body-secondary">Please ask a member of the kitchen team.</p>
-             <div><button class="btn btn-outline-secondary" data-act="skip">Skip ${course.label.toLowerCase()}</button></div>`}
+        <p class="text-body-secondary">Please ask a member of the kitchen team.</p>
+        <div><button class="btn btn-outline-secondary" data-act="skip">Skip ${course.label.toLowerCase()}</button></div>
       </div>`;
 
-  // Sticky confirm bar
   const canGoBack = child.step > 0 || child.optFor;
   const confirmBar = `
     <div class="confirm-bar card shadow mt-4">
@@ -465,14 +435,12 @@ function viewChoose() {
       </div>
     </div>`;
 
-  return dayLine + cardBar + steps + `<h1 class="prompt fw-bold mb-4">${esc(prompt)}</h1>` + grid + (items.length || canGoBack ? confirmBar : '');
+  return who + cardBar + steps + `<h1 class="prompt fw-bold mb-4">${esc(prompt)}</h1>` + grid + (items.length || canGoBack ? confirmBar : '');
 }
 
 /* ---------------------------------------------------------------------
-   4b. SCREEN: Kitchen menu (for staff)
+   6c. SCREEN: Kitchen menu (manager)
    --------------------------------------------------------------------- */
-
-// Allergen checkboxes (used for dishes and options). prefix makes each id unique
 function allergenChecks(prefix, name, selected, cols = 'row-cols-2 row-cols-sm-3') {
   return `<div class="row ${cols}">${ALLERGENS.map(([k, l]) => `
     <div class="col"><div class="form-check">
@@ -480,7 +448,7 @@ function allergenChecks(prefix, name, selected, cols = 'row-cols-2 row-cols-sm-3
       <label class="form-check-label" for="${prefix}-${k}">${l}</label>
     </div></div>`).join('')}</div>`;
 }
-function tagChecks(prefix, name, selected) {                  // Vegetarian/Vegan/Halal checkboxes
+function tagChecks(prefix, name, selected) {
   return TAGS.map(([k, l]) => `
     <div class="form-check form-check-inline">
       <input class="form-check-input" type="checkbox" id="${prefix}-${k}" name="${name}" value="${k}" ${selected.includes(k) ? 'checked' : ''}>
@@ -488,7 +456,6 @@ function tagChecks(prefix, name, selected) {                  // Vegetarian/Vega
     </div>`).join('');
 }
 
-// Form for adding/editing a dish
 function dishForm() {
   const d = dishDraft;
   const isNew = !S.dishes.some(x => x.id === d.id);
@@ -496,17 +463,14 @@ function dishForm() {
     <form class="card editor mb-4" id="dishForm">
       <div class="card-body">
         <h3 class="h5 mb-3">${isNew ? 'Add a dish' : 'Edit ' + esc(d.name)}</h3>
-
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label fw-bold" for="f-name">Dish name</label>
-            <input class="form-control" id="f-name" name="name" required maxlength="50" value="${esc(d.name)}" placeholder="e.g. Shepherd's pie">
+            <input class="form-control" id="f-name" name="name" required maxlength="80" value="${esc(d.name)}" placeholder="e.g. Shepherd's pie">
           </div>
           <div class="col-sm-4">
             <label class="form-label fw-bold" for="f-course">Step</label>
-            <select class="form-select" id="f-course" name="course">
-              ${COURSES.map(c => `<option value="${c.key}" ${d.course === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}
-            </select>
+            <select class="form-select" id="f-course" name="course">${COURSES.map(c => `<option value="${c.key}" ${d.course === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
           </div>
           <div class="col-sm-4">
             <label class="form-label fw-bold" for="f-week">Week</label>
@@ -537,14 +501,12 @@ function dishForm() {
               <button type="button" class="btn btn-sm btn-outline-danger" id="f-clearphoto" data-act="clearphoto" ${d.photo ? '' : 'hidden'}>Remove photo</button>
             </div>
           </div>
-          <div class="form-text">A real photo of your own food often helps autistic children more than a cartoon picture.</div>
         </fieldset>
 
         <fieldset class="mt-3">
           <legend class="fs-6 fw-bold">Contains (the UK's 14 allergens)</legend>
           ${allergenChecks('f-alg', 'alg', d.allergens)}
         </fieldset>
-
         <fieldset class="mt-3">
           <legend class="fs-6 fw-bold">Suitable for</legend>
           ${tagChecks('f-tag', 'tag', d.tags)}
@@ -554,7 +516,7 @@ function dishForm() {
           <legend class="fs-6 fw-bold">Choices inside this dish <span class="fw-normal text-body-secondary">(optional, e.g. fillings or custard)</span></legend>
           ${d.options.length ? `
             <label class="form-label small fw-bold" for="f-oprompt">Question for the child</label>
-            <input class="form-control mb-2" id="f-oprompt" name="optionPrompt" maxlength="80" value="${esc(d.optionPrompt)}" placeholder="e.g. What would you like in your jacket potato?">` : ''}
+            <input class="form-control mb-2" id="f-oprompt" name="optionPrompt" maxlength="80" value="${esc(d.optionPrompt)}">` : ''}
           ${d.options.map((o, i) => `
             <div class="border rounded p-2 mb-2">
               <div class="d-flex gap-2 mb-2">
@@ -572,13 +534,13 @@ function dishForm() {
 
         <div class="mt-3">
           <label class="form-label fw-bold" for="f-note">Allergen notes for staff</label>
-          <textarea class="form-control" id="f-note" name="note" rows="2" maxlength="400" placeholder="e.g. Uses Brand X gravy granules (contains wheat)">${esc(d.note || '')}</textarea>
+          <textarea class="form-control" id="f-note" name="note" rows="2" maxlength="400">${esc(d.note || '')}</textarea>
         </div>
 
-        <div class="form-check mt-4 p-3 rounded border border-warning-subtle bg-warning-subtle">
+        <div class="form-check mt-4 p-3 rounded border border-success-subtle bg-success-subtle">
           <input class="form-check-input ms-0 me-2" type="checkbox" id="f-checked" name="checked" ${d.checked ? 'checked' : ''}>
-          <label class="form-check-label fw-bold" for="f-checked">I have checked these allergens against the kitchen's official records</label>
-          <div class="form-text">Until this is ticked, the dish is hidden whenever a diet card is selected.</div>
+          <label class="form-check-label fw-bold" for="f-checked">Allergens confirmed by the kitchen manager</label>
+          <div class="form-text">Untick to hide this dish from every diet card until it's checked again.</div>
         </div>
 
         <div class="d-flex gap-2 mt-4">
@@ -589,8 +551,7 @@ function dishForm() {
     </form>`;
 }
 
-// Copies what's typed in the dish form into dishDraft (so re-drawing the form doesn't lose it)
-function syncDishDraft() {
+function syncDishDraft() {                                    // Copy typed values into dishDraft
   const form = document.getElementById('dishForm');
   if (!form || !dishDraft) return;
   const f = new FormData(form);
@@ -603,7 +564,7 @@ function syncDishDraft() {
     tags: f.getAll('tag'),
     checked: f.get('checked') === 'on',
     optionPrompt: String(f.get('optionPrompt') || '').trim(),
-    note: String(f.get('note') || '').trim(),                 // Staff allergen notes
+    note: String(f.get('note') || '').trim(),
     options: dishDraft.options.map((o, i) => ({
       id: o.id,
       name: String(f.get(`o-${i}-name`) || '').trim(),
@@ -614,7 +575,6 @@ function syncDishDraft() {
   });
 }
 
-// Form for adding/editing a diet card
 function cardForm() {
   const c = cardDraft;
   const isNew = !S.cards.some(x => x.id === c.id);
@@ -624,7 +584,7 @@ function cardForm() {
         <h3 class="h5 mb-3">${isNew ? 'Add a diet card' : 'Edit ' + esc(c.name)}</h3>
         <label class="form-label fw-bold" for="c-name">Card name</label>
         <input class="form-control" id="c-name" name="name" required maxlength="32" value="${esc(c.name)}" placeholder="e.g. Red · No milk or eggs">
-        <div class="form-text">Use a colour or code, never a child's name.</div>
+        <div class="form-text">Use a colour and the restriction, never a child's name.</div>
         <fieldset class="mt-3">
           <legend class="fs-6 fw-bold">Card colour</legend>
           ${CARD_COLOURS.map(([hex, n]) => `
@@ -649,13 +609,18 @@ function cardForm() {
     </form>`;
 }
 
-// The whole kitchen screen
 function viewKitchen() {
+  if (!S.dishes.length) {                                     // First run: empty database
+    return `<div class="card mx-auto" style="max-width:560px"><div class="card-body p-4">
+      <h2 class="h4">Your menu is empty</h2>
+      <p>Load the school's 3-week menu and the 7 diet cards into the online database. You can edit everything afterwards.</p>
+      <button class="btn btn-primary" data-act="seed" ${busy ? 'disabled' : ''}>${busy ? 'Loading…' : 'Load the school menu'}</button>
+    </div></div>`;
+  }
   const today = todaySlot();
-  const shown = S.dishes.filter(d => inSlot(d, slot.week, slot.day));        // Dishes on the shown day
-  const unchecked = shown.filter(d => !d.checked).length;                    // How many still need allergen checks
+  const shown = S.dishes.filter(d => inSlot(d, slot.week, slot.day));
+  const unchecked = shown.filter(d => !d.checked).length;
 
-  // Week and day pickers
   const picker = `
     <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
       <div class="btn-group" role="group" aria-label="Menu week">
@@ -667,48 +632,37 @@ function viewKitchen() {
       ${slot.week !== today.week || slot.day !== today.day ? `<button class="btn btn-sm btn-link" data-act="today">Back to today</button>` : ''}
     </div>`;
 
-  // ----- Filter: which dishes (and which choices inside them) suit the chosen button -----
-  const fCard = kitchenFilter && kitchenFilter.startsWith('card:') ? cardById(kitchenFilter.slice(5)) : null;   // Chosen diet card
-  const fTag = kitchenFilter && kitchenFilter.startsWith('tag:') ? kitchenFilter.slice(4) : null;             // Chosen tag (vegan/halal)
-  const filterOn = !!(fCard || fTag);                                                                         // Is any filter active?
-  const optFits = (d, o) => fCard ? optionSafe(d, o, fCard, true)                     // Card: use the listed allergens (checked or not)
-                          : fTag ? d.tags.includes(fTag) && (!o || o.tags.includes(fTag))   // Tag: dish (and choice) must have the tag
-                          : true;                                                     // No filter: everything fits
-  const fits = d => d.options.length ? d.options.some(o => optFits(d, o)) : optFits(d, null);   // Dish fits if any choice fits
-  const matching = shown.filter(fits).length;                                         // How many dishes fit today
-
-  // Filter buttons: All, every diet card, then Vegan and Halal
+  // Filter buttons
+  const fCard = kitchenFilter && kitchenFilter.startsWith('card:') ? cardById(kitchenFilter.slice(5)) : null;
+  const fTag = kitchenFilter && kitchenFilter.startsWith('tag:') ? kitchenFilter.slice(4) : null;
+  const filterOn = !!(fCard || fTag);
+  const optFits = (d, o) => fCard ? optionSafe(d, o, fCard, true) : fTag ? d.tags.includes(fTag) && (!o || o.tags.includes(fTag)) : true;
+  const fits = d => (d.options || []).length ? d.options.some(o => optFits(d, o)) : optFits(d, null);
+  const matching = shown.filter(fits).length;
   const filterBar = `
     <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
       <span class="label-caps me-1">Show</span>
       <button class="btn btn-sm rounded-pill fw-bold ${!filterOn ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="">All dishes</button>
-      ${S.cards.map(c => `
-        <button class="btn btn-sm rounded-pill fw-bold d-inline-flex align-items-center gap-1 ${fCard && fCard.id === c.id ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="card:${c.id}">
-          <i class="swatch" style="background:${esc(c.color)}"></i>${esc(c.name)}
-        </button>`).join('')}
-      ${['vegan', 'halal'].map(t => `
-        <button class="btn btn-sm rounded-pill fw-bold ${fTag === t ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="tag:${t}">${TAG_LABEL[t]}</button>`).join('')}
+      ${S.cards.map(c => `<button class="btn btn-sm rounded-pill fw-bold d-inline-flex align-items-center gap-1 ${fCard && fCard.id === c.id ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="card:${c.id}"><i class="swatch" style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('')}
+      ${['vegan', 'halal'].map(t => `<button class="btn btn-sm rounded-pill fw-bold ${fTag === t ? 'btn-primary' : 'btn-outline-secondary'}" data-act="kfilter" data-f="tag:${t}">${TAG_LABEL[t]}</button>`).join('')}
     </div>
-    ${filterOn ? `<p class="small text-body-secondary mb-3">Showing <b>${matching} of ${shown.length}</b> dishes that suit
-        <b>${esc(fCard ? fCard.name : TAG_LABEL[fTag])}</b>${fCard ? ', based on the listed allergens' : ''}.
-        Choices that don't suit it are <s>crossed out</s>.${fTag === 'halal' && !matching ? ' No dishes are tagged Halal yet: add the tag with Edit.' : ''}</p>` : ''}`;
+    ${filterOn ? `<p class="small text-body-secondary mb-3">Showing <b>${matching} of ${shown.length}</b> dishes that suit <b>${esc(fCard ? fCard.name : TAG_LABEL[fTag])}</b>. Choices that don't suit it are <s>crossed out</s>.${fTag === 'halal' && !matching ? ' No dishes are tagged Halal yet: add the tag with Edit.' : ''}</p>` : ''}`;
 
-  // Dish list, grouped by step
   const menu = COURSES.map(c => {
-    const list = shown.filter(d => d.course === c.key && (!filterOn || fits(d)));   // Only dishes that fit the filter
+    const list = shown.filter(d => d.course === c.key && (!filterOn || fits(d)));
     return `
-      <h3 class="label-caps mt-4 mb-2">${c.label} · ${list.length} ${list.length === 1 ? 'dish' : 'dishes'}</h3>
+      <h3 class="label-caps mt-4 mb-2">${c.label} · ${plural(list.length, 'dish', 'dishes')}</h3>
       <ul class="list-group">
         ${list.map(d => `
           <li class="list-group-item d-flex gap-3 align-items-center">
             ${dishThumb(d)}
             <div class="flex-grow-1" style="min-width:0">
               <div class="fw-bold">${esc(d.name)} <span class="badge text-bg-light border fw-normal">${whenLabel(d)}</span></div>
-              ${d.options.length ? `<div class="small text-body-secondary">Choices: ${d.options.map(o => filterOn && !optFits(d, o) ? `<s title="Doesn't suit this filter">${esc(o.name)}</s>` : esc(o.name)).join(', ')}</div>` : ''}
+              ${(d.options || []).length ? `<div class="small text-body-secondary">Choices: ${d.options.map(o => filterOn && !optFits(d, o) ? `<s>${esc(o.name)}</s>` : esc(o.name)).join(', ')}</div>` : ''}
               ${d.note ? `<div class="small text-body-secondary fst-italic mt-1">Allergen notes: ${esc(d.note)}</div>` : ''}
               <div class="d-flex flex-wrap gap-1 mt-1">
-                ${d.checked ? '' : '<span class="badge text-bg-warning">Allergens not checked</span>'}
-                ${d.allergens.map(a => `<span class="badge ${d.checked ? 'text-bg-danger' : 'border border-danger text-danger'}">${ALLERGEN_LABEL[a]}</span>`).join('')}
+                ${d.checked ? '' : '<span class="badge text-bg-warning">Allergens not confirmed</span>'}
+                ${d.allergens.map(a => `<span class="badge text-bg-danger">${ALLERGEN_LABEL[a]}</span>`).join('')}
                 ${d.tags.map(t => `<span class="badge text-bg-success">${TAG_LABEL[t]}</span>`).join('')}
               </div>
             </div>
@@ -716,11 +670,10 @@ function viewKitchen() {
               <button class="btn btn-sm btn-outline-secondary" data-act="editdish" data-id="${d.id}">Edit</button>
               <button class="btn btn-sm ${pendingDelete === d.id ? 'btn-danger' : 'btn-outline-danger'}" data-act="deldish" data-id="${d.id}">${pendingDelete === d.id ? 'Tap again to remove' : 'Remove'}</button>
             </div>
-          </li>`).join('') || '<li class="list-group-item text-body-secondary">No dishes for this day.</li>'}
+          </li>`).join('') || '<li class="list-group-item text-body-secondary">No dishes.</li>'}
       </ul>`;
   }).join('');
 
-  // Diet cards
   const cards = S.cards.map(c => `
     <li class="list-group-item d-flex gap-3 align-items-start">
       <i class="swatch swatch-lg mt-1" style="background:${esc(c.color)}"></i>
@@ -748,12 +701,11 @@ function viewKitchen() {
           </div>
           ${picker}
           ${filterBar}
-          ${unchecked ? `<div class="alert alert-warning small py-2">${unchecked} ${unchecked === 1 ? 'dish needs' : 'dishes need'} an allergen check. Red outlined allergens are <b>suggestions only</b>. Open each dish, compare with the official records, then tick the confirmation box.</div>` : ''}
+          ${unchecked ? `<div class="alert alert-warning small py-2">${plural(unchecked, 'dish is', 'dishes are')} not confirmed and hidden from diet cards.</div>` : ''}
           ${dishDraft ? dishForm() : ''}
           ${menu}
         </div></section>
       </div>
-
       <div class="col-lg-5 d-flex flex-column gap-4">
         <section class="card"><div class="card-body">
           <h2 class="h4 mb-2">Menu rotation</h2>
@@ -761,124 +713,252 @@ function viewKitchen() {
           <div class="btn-group" role="group" aria-label="This week is">
             ${[1, 2, 3].map(w => `<button class="btn ${weekFor(new Date()) === w ? 'btn-primary' : 'btn-outline-secondary'}" data-act="setweek" data-w="${w}">Week ${w}</button>`).join('')}
           </div>
-          <p class="small text-body-secondary mt-2 mb-0">The menu moves on to the next week automatically every Monday.</p>
+          <p class="small text-body-secondary mt-2 mb-0">Moves on automatically every Monday, for every school.</p>
         </div></section>
-
         <section class="card"><div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
             <h2 class="h4 mb-0">Diet cards</h2>
             <button class="btn btn-outline-primary" data-act="newcard">Add card</button>
           </div>
-          <p class="small text-body-secondary">Staff pick a card before a child chooses. Dishes that aren't safe for that card, or haven't been allergen-checked, are hidden.</p>
+          <p class="small text-body-secondary">Staff pick a card before a child chooses. Dishes that aren't safe for that card are hidden.</p>
           ${cardDraft ? cardForm() : ''}
           <ul class="list-group">${cards || '<li class="list-group-item text-body-secondary">No diet cards yet.</li>'}</ul>
         </div></section>
-
         <section class="card"><div class="card-body">
           <h2 class="h4 mb-3">Settings</h2>
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" id="s-speech" ${S.speech ? 'checked' : ''}>
+            <input class="form-check-input" type="checkbox" role="switch" id="s-speech" ${S.settings.speech ? 'checked' : ''}>
             <label class="form-check-label fw-bold" for="s-speech">Read choices aloud</label>
           </div>
-          <p class="small text-body-secondary">Speaks each dish when a child taps it, using the device's built-in voice.</p>
-          <div class="d-flex flex-wrap gap-2">
-            ${confirmReset
-              ? `<button class="btn btn-danger" data-act="doreset">Yes, replace everything</button>
-                 <button class="btn btn-outline-secondary" data-act="cancelreset">Keep my changes</button>`
-              : `<button class="btn btn-outline-secondary" data-act="reset">Restore school menu</button>`}
-          </div>
+          <p class="small text-body-secondary">Applies to every class device.</p>
+          ${confirmReset
+            ? `<div class="alert alert-danger small">This replaces every dish and diet card with the original school menu. Your edits will be lost.</div>
+               <button class="btn btn-danger" data-act="doreset">Yes, replace the menu</button>
+               <button class="btn btn-outline-secondary" data-act="cancelreset">Keep my menu</button>`
+            : `<button class="btn btn-outline-secondary" data-act="reset">Restore the original school menu</button>`}
         </div></section>
       </div>
     </div>`;
 }
 
 /* ---------------------------------------------------------------------
-   4c. SCREEN: Today's choices (counts)
+   6d. SCREEN: Orders (manager) - per school, per class, and total
    --------------------------------------------------------------------- */
-function viewTally() {
-  const today = todaySlot();
-  // Total children = number of mains chosen today (every main dish, any day)
-  const total = S.dishes.filter(d => d.course === 'main').reduce((sum, d) => sum + (S.tally[d.id] || 0), 0);
-  const skippedMain = S.tally['skip/main'] || 0;              // Children who skipped the main
+function countItems(orders) {                                 // { "main|Jacket potato – Tuna": n, ... }
+  const counts = {};
+  orders.forEach(o => o.items.forEach(it => {
+    const key = it.course + '|' + (it.skipped ? (COURSES.find(c => c.key === it.course)?.optional ? 'No thank you' : 'Skipped') : itemName(it));
+    counts[key] = (counts[key] || 0) + 1;
+  }));
+  return counts;
+}
 
-  const columns = COURSES.map(c => {
-    const list = S.dishes
-      .filter(d => d.course === c.key && (inSlot(d, today.week, today.day) || S.tally[d.id]))   // Today's dishes + anything counted
-      .sort((a, b) => (S.tally[b.id] || 0) - (S.tally[a.id] || 0));                              // Most popular first
-    const max = Math.max(1, ...list.map(d => S.tally[d.id] || 0));
-    const skipped = S.tally['skip/' + c.key] || 0;
+function viewOrders() {
+  const schools = S.schools;
+  const inScope = ordersScope === 'all' ? S.orders : S.orders.filter(o => o.schoolId === ordersScope);
+  const dateLabel = new Date(ordersDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  // Header: date, scope buttons, totals
+  const header = `
+    <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+      <div>
+        <label class="label-caps d-block mb-1" for="o-date">Orders for</label>
+        <div class="d-flex gap-2 align-items-center">
+          <input type="date" class="form-control" id="o-date" value="${ordersDate}" style="max-width:12rem">
+          ${ordersDate !== isoDate(servingDay()) ? `<button class="btn btn-sm btn-link" data-act="otoday">Today</button>` : ''}
+        </div>
+        <div class="small text-body-secondary mt-1">${dateLabel} · updates live</div>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <div class="text-center px-3"><div class="big-number tabular">${S.orders.length}</div><div class="label-caps">Total</div></div>
+        ${schools.map(s => `<div class="text-center px-3 border-start"><div class="big-number tabular">${S.orders.filter(o => o.schoolId === s.id).length}</div><div class="label-caps">${esc(s.name)}</div></div>`).join('')}
+      </div>
+    </div>
+    <div class="btn-group flex-wrap mb-4" role="group" aria-label="Show orders for">
+      <button class="btn ${ordersScope === 'all' ? 'btn-primary' : 'btn-outline-secondary'}" data-act="oscope" data-s="all">All schools</button>
+      ${schools.map(s => `<button class="btn ${ordersScope === s.id ? 'btn-primary' : 'btn-outline-secondary'}" data-act="oscope" data-s="${s.id}">${esc(s.name)}</button>`).join('')}
+    </div>`;
+
+  if (!schools.length) return header + `<div class="alert alert-info">Add your schools and classes in <b>Schools &amp; classes</b> first.</div>`;
+  if (!inScope.length) return header + `<div class="card p-4 text-center text-body-secondary">No orders yet for this day.</div>`;
+
+  // 1) Meals to prepare: one row per meal, one column per school (+ total)
+  const cols = ordersScope === 'all' ? schools : schools.filter(s => s.id === ordersScope);
+  const perSchool = Object.fromEntries(cols.map(s => [s.id, countItems(inScope.filter(o => o.schoolId === s.id))]));
+  const allCounts = countItems(inScope);
+  const prepare = COURSES.map(c => {
+    const rows = Object.entries(allCounts).filter(([k]) => k.startsWith(c.key + '|')).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) return '';
+    return `<tr class="table-light"><th colspan="${cols.length + 2}">${c.label}</th></tr>` + rows.map(([k, n]) => `
+      <tr><td>${esc(k.split('|')[1])}</td>
+        ${cols.map(s => `<td class="text-end tabular">${perSchool[s.id][k] || ''}</td>`).join('')}
+        <td class="text-end tabular fw-bold">${n}</td></tr>`).join('');
+  }).join('');
+
+  // 2) Serving list: each class, what to take to it, and diet-card meals listed one by one
+  const serving = cols.map(s => {
+    const classes = S.classes.filter(c => c.schoolId === s.id);
+    const orphans = inScope.filter(o => o.schoolId === s.id && !classes.some(c => c.id === o.classId));   // Orders from removed classes
+    const groups = classes.map(c => ({ name: c.name, orders: inScope.filter(o => o.classId === c.id) }))
+      .concat(orphans.length ? [{ name: 'Removed class', orders: orphans }] : []);
     return `
-      <div class="col-lg-4">
-        <section class="card h-100"><div class="card-body">
-          <h2 class="h5 mb-3">${c.label}</h2>
-          ${list.map(d => {
-            const n = S.tally[d.id] || 0;
-            const breakdown = d.options.map(o => [o.name, S.tally[d.id + '/' + o.id] || 0]).filter(([, k]) => k);   // Counts per option
-            return `
-              <div class="d-flex align-items-center gap-2 mb-2">
-                <span class="fs-4" style="width:40px;text-align:center" aria-hidden="true">${d.photo ? '📷' : esc(d.emoji || '🍽️')}</span>
-                <div class="flex-grow-1" style="min-width:0">
-                  <div class="small fw-bold text-truncate">${esc(d.name)}</div>
-                  <div class="progress tally-progress" role="progressbar" aria-label="${esc(d.name)}" aria-valuenow="${n}" aria-valuemin="0" aria-valuemax="${max}">
-                    <div class="progress-bar" style="width:${(n / max * 100).toFixed(1)}%"></div>
-                  </div>
-                  ${breakdown.length ? `<div class="small text-body-secondary mt-1">${breakdown.map(([name, k]) => `${esc(name)}: ${k}`).join(' · ')}</div>` : ''}
-                </div>
-                <span class="fw-bold tabular" style="width:3ch;text-align:right">${n}</span>
-              </div>`;
-          }).join('') || '<p class="text-body-secondary">No dishes.</p>'}
-          ${skipped ? `<p class="small text-body-secondary mb-0">${c.optional ? 'Said no thank you' : 'Skipped'}: ${skipped}</p>` : ''}
-        </div></section>
+      <h3 class="h5 mt-4 mb-2">${esc(s.name)}</h3>
+      <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+        ${groups.map(g => {
+          const counts = countItems(g.orders);
+          const cardMeals = g.orders.filter(o => o.card);
+          return `<div class="col"><div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-baseline mb-2">
+              <h4 class="h6 mb-0">${esc(g.name)}</h4>
+              <span class="badge text-bg-secondary">${plural(g.orders.length, 'order', 'orders')}</span>
+            </div>
+            ${g.orders.length ? COURSES.map(c => {
+              const rows = Object.entries(counts).filter(([k]) => k.startsWith(c.key + '|'));
+              return rows.length ? `<div class="small"><span class="label-caps">${c.label}</span><ul class="list-unstyled mb-2">${rows.map(([k, n]) => `<li><b class="tabular">${n} ×</b> ${esc(k.split('|')[1])}</li>`).join('')}</ul></div>` : '';
+            }).join('') : '<p class="small text-body-secondary mb-0">No orders.</p>'}
+            ${cardMeals.length ? `<div class="alert alert-warning small py-2 mb-2"><b>Diet card meals: keep separate</b>
+              <ul class="mb-0 ps-3">${cardMeals.map(o => `<li><b>${esc(o.card)}:</b> ${o.items.filter(i => !i.skipped).map(itemName).map(esc).join(', ')}</li>`).join('')}</ul></div>` : ''}
+            ${g.orders.length ? `<details class="small"><summary>Individual orders</summary>
+              <ul class="list-unstyled mt-2 mb-0">${g.orders.map(o => `
+                <li class="d-flex gap-2 align-items-start border-top pt-1 mt-1">
+                  <span class="text-body-secondary tabular">${o.createdAt ? o.createdAt.toDate().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '…'}</span>
+                  <span class="flex-grow-1">${o.card ? `<b>${esc(o.card)}</b>: ` : ''}${o.items.filter(i => !i.skipped).map(itemName).map(esc).join(', ')}</span>
+                  <button class="btn btn-sm py-0 ${pendingDelete === o.id ? 'btn-danger' : 'btn-outline-danger'}" data-act="delorder" data-id="${o.id}">${pendingDelete === o.id ? 'Tap again' : 'Remove'}</button>
+                </li>`).join('')}</ul></details>` : ''}
+          </div></div></div>`;
+        }).join('') || '<p class="text-body-secondary">No classes yet.</p>'}
       </div>`;
   }).join('');
 
-  return `
-    <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
-      <div>
-        <div class="label-caps">Children who have chosen · ${DAY_LABEL[today.day]}, Week ${today.week}</div>
-        <div class="big-number tabular">${total + skippedMain}</div>
-      </div>
-      <div class="d-flex flex-wrap gap-2 align-items-center">
-        ${confirmClear
-          ? `<button class="btn btn-danger" data-act="doclear">Yes, clear today</button>
-             <button class="btn btn-outline-secondary" data-act="cancelclear">Cancel</button>`
-          : `<button class="btn btn-outline-secondary" data-act="clear">Start a new day</button>`}
-      </div>
-    </div>
-    <div class="row g-4">${columns}</div>
-    <p class="small text-body-secondary mt-3">Use these counts to plan portions and reduce food waste. No child's name is recorded.</p>`;
+  return header + `
+    <section class="card mb-4"><div class="card-body">
+      <h2 class="h5">Meals to prepare</h2>
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Meal</th>${cols.map(s => `<th class="text-end">${esc(s.name)}</th>`).join('')}<th class="text-end">Total</th></tr></thead>
+        <tbody>${prepare}</tbody>
+      </table></div>
+    </div></section>
+    <h2 class="h5">Serving list by class</h2>
+    ${serving}`;
 }
 
 /* ---------------------------------------------------------------------
-   RENDER - redraw the current screen
+   6e. SCREEN: Schools & classes (manager)
    --------------------------------------------------------------------- */
-function render() {
-  document.querySelectorAll('#tabs .nav-link').forEach(b => {         // Highlight the current tab
-    const on = b.dataset.v === view;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-selected', String(on));
-  });
-  document.getElementById('app').innerHTML =
-    view === 'choose' ? viewChoose() : view === 'kitchen' ? viewKitchen() : viewTally();
+function classForm() {
+  const c = classDraft;
+  const isNew = !c.id;
+  return `<form class="card editor mb-3" id="classForm"><div class="card-body">
+    <h3 class="h6 mb-3">${isNew ? 'Add a class to ' + esc(schoolName(c.schoolId)) : 'Edit ' + esc(c.name)}</h3>
+    <label class="form-label fw-bold" for="k-name">Class name</label>
+    <input class="form-control mb-3" id="k-name" name="name" required maxlength="30" value="${esc(c.name || '')}" placeholder="e.g. AA">
+    ${isNew ? '' : `<div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="k-newlogin" name="newLogin" ${c.newLogin ? 'checked' : ''} data-act="togglenewlogin">
+      <label class="form-check-label" for="k-newlogin">Give this class a new login (e.g. forgotten password)</label></div>`}
+    ${isNew || c.newLogin ? `
+      <div class="row g-2">
+        <div class="col-sm-6">
+          <label class="form-label fw-bold" for="k-user">${isNew ? 'Username' : 'New username'}</label>
+          <input class="form-control" id="k-user" name="username" required maxlength="30" autocapitalize="none" value="${esc(c.username || '')}" placeholder="e.g. a-aa">
+          <div class="form-text">Lowercase letters, numbers and dashes.${isNew ? '' : ' Must be different from the old one.'}</div>
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label fw-bold" for="k-pass">Password</label>
+          <input class="form-control" id="k-pass" name="password" required minlength="6" maxlength="64" autocomplete="new-password">
+          <div class="form-text">At least 6 characters. Write it down for the class teacher.</div>
+        </div>
+      </div>` : ''}
+    <div class="d-flex gap-2 mt-3">
+      <button type="submit" class="btn btn-primary" ${busy ? 'disabled' : ''}>${busy ? 'Saving…' : 'Save class'}</button>
+      <button type="button" class="btn btn-outline-secondary" data-act="cancelclass">Cancel</button>
+    </div>
+  </div></form>`;
+}
+
+function viewSetup() {
+  const schoolFormHtml = schoolDraft ? `
+    <form class="card editor mb-3" id="schoolForm"><div class="card-body">
+      <label class="form-label fw-bold" for="sc-name">${schoolDraft.id ? 'Rename school' : 'New school name'}</label>
+      <input class="form-control mb-3" id="sc-name" name="name" required maxlength="40" value="${esc(schoolDraft.name || '')}" placeholder="e.g. School A">
+      <button type="submit" class="btn btn-primary">Save school</button>
+      <button type="button" class="btn btn-outline-secondary" data-act="cancelschool">Cancel</button>
+    </div></form>` : '';
+
+  return `
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h2 class="h4 mb-0">Schools &amp; classes</h2>
+      <button class="btn btn-primary" data-act="newschool">Add a school</button>
+    </div>
+    <p class="text-body-secondary small">Each class gets its own login. Class devices can only choose lunch, and every order is labelled with its school and class.</p>
+    ${schoolDraft && !schoolDraft.id ? schoolFormHtml : ''}
+    ${S.schools.map(s => {
+      const classes = S.classes.filter(c => c.schoolId === s.id);
+      return `<section class="card mb-4"><div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <h3 class="h5 mb-0">${esc(s.name)} <span class="badge text-bg-light border fw-normal">${plural(classes.length, 'class', 'classes')}</span></h3>
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-secondary" data-act="editschool" data-id="${s.id}">Rename</button>
+            <button class="btn btn-sm ${pendingDelete === s.id ? 'btn-danger' : 'btn-outline-danger'}" data-act="delschool" data-id="${s.id}">${pendingDelete === s.id ? 'Tap again' : 'Remove'}</button>
+            <button class="btn btn-sm btn-outline-primary" data-act="newclass" data-id="${s.id}">Add a class</button>
+          </div>
+        </div>
+        ${schoolDraft && schoolDraft.id === s.id ? schoolFormHtml : ''}
+        ${classDraft && classDraft.schoolId === s.id ? classForm() : ''}
+        <ul class="list-group">
+          ${classes.map(c => `<li class="list-group-item d-flex gap-3 align-items-center">
+            <div class="flex-grow-1"><div class="fw-bold">${esc(c.name)}</div><div class="small text-body-secondary">Username: <code>${esc(c.username)}</code></div></div>
+            <button class="btn btn-sm btn-outline-secondary" data-act="editclass" data-id="${c.id}">Edit</button>
+            <button class="btn btn-sm ${pendingDelete === c.id ? 'btn-danger' : 'btn-outline-danger'}" data-act="delclass" data-id="${c.id}">${pendingDelete === c.id ? 'Tap again' : 'Remove'}</button>
+          </li>`).join('') || '<li class="list-group-item text-body-secondary">No classes yet.</li>'}
+        </ul>
+      </div></section>`;
+    }).join('') || '<div class="card p-4 text-center text-body-secondary">No schools yet. Add School A and School B to start.</div>'}
+    <p class="small text-body-secondary">Removing a class or giving it a new login blocks the old login straight away. To tidy up, you can also delete old logins in Firebase → Authentication.</p>`;
 }
 
 /* ---------------------------------------------------------------------
-   Photo upload: shrink the photo so it doesn't fill up storage
+   RENDER - redraw the page
+   --------------------------------------------------------------------- */
+const MANAGER_TABS = [['orders', 'Orders'], ['kitchen', 'Kitchen menu'], ['setup', 'Schools & classes'], ['choose', 'Preview']];
+
+function render() {
+  // Tabs: only the manager sees them
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = role === 'manager' && !loading
+    ? MANAGER_TABS.map(([v, l]) => `<li class="nav-item"><button class="nav-link ${view === v ? 'active' : ''}" data-act="view" data-v="${v}" aria-selected="${view === v}">${l}</button></li>`).join('')
+    : '';
+  tabs.hidden = !tabs.innerHTML;
+
+  // Who is signed in + Sign out
+  document.getElementById('who').innerHTML = user && role
+    ? `<span class="small text-body-secondary me-2">${role === 'manager' ? 'Kitchen manager' : esc(className(account.classId))}</span>
+       <button class="btn btn-sm btn-outline-secondary" data-act="signout">Sign out</button>`
+    : '';
+
+  const app = document.getElementById('app');
+  if (!CONFIGURED) app.innerHTML = viewNotConfigured();
+  else if (!user || !role) app.innerHTML = loading ? viewLoading() : viewLogin();
+  else if (loading) app.innerHTML = viewLoading();
+  else if (role === 'class') app.innerHTML = viewChoose();
+  else app.innerHTML = view === 'kitchen' ? viewKitchen() : view === 'orders' ? viewOrders() : view === 'setup' ? viewSetup() : viewChoose();
+}
+
+/* ---------------------------------------------------------------------
+   Photo upload: shrink the photo so it fits in the database
    --------------------------------------------------------------------- */
 function readPhoto(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();                                   // Browser tool for reading files
+    const reader = new FileReader();
     reader.onerror = reject;
     reader.onload = () => {
       const img = new Image();
       img.onerror = reject;
       img.onload = () => {
-        const scale = Math.min(1, 400 / Math.max(img.width, img.height));   // Longest side max 400px
+        const scale = Math.min(1, 400 / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));                  // JPEG at 80% quality
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
       };
       img.src = reader.result;
     };
@@ -887,258 +967,247 @@ function readPhoto(file) {
 }
 
 /* ---------------------------------------------------------------------
-   Child flow helpers
+   Child flow
    --------------------------------------------------------------------- */
-function recordChoices() {                                             // Adds the finished child's choices to today's counts
-  COURSES.forEach(c => {
-    const p = child.picks[c.key];
-    if (!p) { S.tally['skip/' + c.key] = (S.tally['skip/' + c.key] || 0) + 1; return; }   // Skipped step
-    S.tally[p.d] = (S.tally[p.d] || 0) + 1;                                               // Count the dish
-    if (p.o) S.tally[p.d + '/' + p.o] = (S.tally[p.d + '/' + p.o] || 0) + 1;               // Count the option
-  });
-  save();
+async function finishChild() {                                // Save the order (classes only)
+  if (role !== 'class') return;
+  child.saved = 'saving'; render();
+  try { await placeOrder(); child.saved = 'ok'; }
+  catch (err) { console.error(err); child.saved = 'error'; }
+  render();
 }
 
-function advance() {                                                   // Moves on to the next step
+function advance() {                                          // Next step
   child.selected = null;
   child.optFor = null;
   child.step++;
-  if (child.step >= COURSES.length) {                                  // Finished all steps
-    recordChoices();
+  if (child.step >= COURSES.length) {
     const names = COURSES.map(c => child.picks[c.key]).filter(Boolean).map(pickName);
     say('All done. You chose ' + (names.join(', ') || 'nothing') + '.');
-  } else {
-    say(COURSES[child.step].prompt);                                   // Ask the next question
-  }
+    finishChild();
+  } else say(COURSES[child.step].prompt);
 }
 
 /* ---------------------------------------------------------------------
-   5. EVENTS - every button has data-act="..." saying what it does
+   7. EVENTS
    --------------------------------------------------------------------- */
-document.addEventListener('click', e => {
-  const btn = e.target.closest('[data-act]');                          // The clicked button
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const act = btn.dataset.act, id = btn.dataset.id;
-  if (act !== 'deldish' && act !== 'delcard') pendingDelete = null;    // Any other click cancels "tap again"
+  if (!['deldish', 'delcard', 'delorder', 'delclass', 'delschool'].includes(act)) pendingDelete = null;
+  const isManager = role === 'manager';
 
   switch (act) {
-    // ----- Tabs -----
-    case 'view':
-      view = btn.dataset.v;
-      dishDraft = cardDraft = null;
-      confirmReset = confirmClear = false;
-      break;
+    case 'signout': await auth.signOut(); return;
+    case 'view': if (isManager) { view = btn.dataset.v; dishDraft = cardDraft = schoolDraft = classDraft = null; confirmReset = false; } break;
 
-    // ----- Child screen -----
-    case 'card':                                                       // Diet card chosen
-      child.cardId = id || null;
-      child.selected = null;
-      child.optFor = null;
-      break;
-    case 'pick': {                                                     // Dish tapped
-      child.selected = id;
-      const d = dishById(id);
-      if (d) say(d.name);
-      break;
-    }
-    case 'pickopt': {                                                  // Option tapped (e.g. a filling)
-      child.selected = id;
-      const o = optById(dishById(child.optFor), id);
-      if (o) say(o.name);
+    // ----- Choosing lunch -----
+    case 'card': child.cardId = id || null; child.selected = null; child.optFor = null; break;
+    case 'pick': { child.selected = id; const d = dishById(id); if (d) say(d.name); break; }
+    case 'pickopt': { child.selected = id; const o = optById(dishById(child.optFor), id); if (o) say(o.name); break; }
+    case 'say': { const it = child.optFor ? optById(dishById(child.optFor), child.selected) : dishById(child.selected); if (it) say(it.name); return; }
+    case 'confirm': {
+      const d = dishById(child.selected); if (!d) return;
+      const safeOpts = (d.options || []).filter(o => optionSafe(d, o, cardById(child.cardId)));
+      if (safeOpts.length) { child.optFor = d.id; child.selected = null; say('You chose ' + d.name + '. ' + (d.optionPrompt || '')); }
+      else { child.picks[COURSES[child.step].key] = { d: d.id, o: null }; advance(); }
       break;
     }
-    case 'say': {                                                      // "Say it" button
-      const item = child.optFor ? optById(dishById(child.optFor), child.selected) : dishById(child.selected);
-      if (item) say(item.name);
-      return;
-    }
-    case 'confirm': {                                                  // "I choose <dish>"
-      const d = dishById(child.selected);
-      if (!d) return;
-      const card = cardById(child.cardId);
-      const safeOpts = d.options.filter(o => optionSafe(d, o, card));
-      if (safeOpts.length) {                                           // Dish has choices inside: ask about them next
-        child.optFor = d.id;
-        child.selected = null;
-        say('You chose ' + d.name + '. ' + (d.optionPrompt || ''));
-      } else {                                                         // No choices inside: save and move on
-        child.picks[COURSES[child.step].key] = { d: d.id, o: null };
-        advance();
+    case 'confirmopt': if (!child.selected) return; child.picks[COURSES[child.step].key] = { d: child.optFor, o: child.selected }; advance(); break;
+    case 'skip': child.picks[COURSES[child.step].key] = null; advance(); break;
+    case 'back':
+      if (child.optFor) { child.selected = child.optFor; child.optFor = null; }
+      else { child.step = Math.max(0, child.step - 1); const p = child.picks[COURSES[child.step].key]; child.selected = p ? p.d : null; }
+      break;
+    case 'retry': finishChild(); return;
+    case 'nextchild': child = newChild(); break;
+
+    // ----- Manager only from here -----
+    default:
+      if (!isManager) return;
+      switch (act) {
+        case 'seed': busy = true; render(); await loadSchoolMenu(false); busy = false; break;
+        case 'reset': confirmReset = true; break;
+        case 'cancelreset': confirmReset = false; break;
+        case 'doreset': confirmReset = false; busy = true; render(); await loadSchoolMenu(true); busy = false; break;
+
+        case 'kfilter': kitchenFilter = btn.dataset.f || null; dishDraft = null; break;
+        case 'slotweek': slot = { ...slot, week: Number(btn.dataset.w) }; dishDraft = null; break;
+        case 'slotday': slot = { ...slot, day: btn.dataset.d }; dishDraft = null; break;
+        case 'today': slot = todaySlot(); dishDraft = null; break;
+        case 'setweek':
+          await saveSettings({ rotation: { anchor: isoDate(mondayOf(new Date())), anchorWeek: Number(btn.dataset.w) } });
+          slot = todaySlot(); toast('This week is now Week ' + btn.dataset.w);
+          break;
+
+        case 'newdish':
+          dishDraft = { id: uid(), name: '', emoji: '🍽️', photo: null, course: 'main', week: slot.week, day: slot.day,
+                        allergens: [], tags: [], checked: true, options: [], optionPrompt: '', note: '' };
+          cardDraft = null; break;
+        case 'editdish': dishDraft = JSON.parse(JSON.stringify(dishById(id))); dishDraft.options = dishDraft.options || []; cardDraft = null; break;
+        case 'canceldish': dishDraft = null; break;
+        case 'addopt': syncDishDraft(); dishDraft.options.push(opt('', '🍽️')); break;
+        case 'delopt': syncDishDraft(); dishDraft.options.splice(Number(btn.dataset.i), 1); break;
+        case 'deldish':
+          if (pendingDelete === id) { pendingDelete = null; await run(db.collection('dishes').doc(id).delete(), 'Dish removed'); }
+          else pendingDelete = id;
+          break;
+        case 'emoji':
+          dishDraft.emoji = btn.dataset.e; dishDraft.photo = null;
+          document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
+          document.getElementById('f-clearphoto').hidden = true;
+          return;
+        case 'clearphoto':
+          dishDraft.photo = null;
+          document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
+          btn.hidden = true;
+          return;
+
+        case 'newcard': cardDraft = { id: uid(), name: '', color: CARD_COLOURS[7][0], avoid: [], vegOnly: false, order: S.cards.length }; dishDraft = null; break;
+        case 'editcard': cardDraft = JSON.parse(JSON.stringify(cardById(id))); dishDraft = null; break;
+        case 'cancelcard': cardDraft = null; break;
+        case 'delcard':
+          if (pendingDelete === id) { pendingDelete = null; await run(db.collection('cards').doc(id).delete(), 'Diet card removed'); }
+          else pendingDelete = id;
+          break;
+
+        case 'otoday': ordersDate = isoDate(servingDay()); listenOrders(); break;
+        case 'oscope': ordersScope = btn.dataset.s; break;
+        case 'delorder':
+          if (pendingDelete === id) { pendingDelete = null; await run(db.collection('orders').doc(id).delete(), 'Order removed'); }
+          else pendingDelete = id;
+          break;
+
+        case 'newschool': schoolDraft = { name: '' }; classDraft = null; break;
+        case 'editschool': schoolDraft = { ...schoolById(id) }; classDraft = null; break;
+        case 'cancelschool': schoolDraft = null; break;
+        case 'delschool':
+          if (S.classes.some(c => c.schoolId === id)) { toast('Remove this school\'s classes first.'); pendingDelete = null; break; }
+          if (pendingDelete === id) { pendingDelete = null; await run(db.collection('schools').doc(id).delete(), 'School removed'); }
+          else pendingDelete = id;
+          break;
+        case 'newclass': classDraft = { schoolId: id, name: '', username: '' }; schoolDraft = null; break;
+        case 'editclass': classDraft = { ...classById(id), newLogin: false, username: '' }; schoolDraft = null; break;
+        case 'togglenewlogin': {                               // Keep the typed name, then show/hide the login fields
+          const f = new FormData(document.getElementById('classForm'));
+          classDraft.name = String(f.get('name') || '');
+          classDraft.newLogin = btn.checked;
+          break;
+        }
+        case 'cancelclass': classDraft = null; break;
+        case 'delclass':
+          if (pendingDelete === id) {
+            pendingDelete = null;
+            const c = classById(id);
+            const batch = db.batch();
+            batch.delete(db.collection('classes').doc(id));
+            if (c && c.uid) batch.delete(db.collection('accounts').doc(c.uid));   // Blocks the old login
+            await run(batch.commit(), 'Class removed and its login blocked');
+          } else pendingDelete = id;
+          break;
+        default: return;
       }
-      break;
-    }
-    case 'confirmopt': {                                               // "I choose <option>"
-      if (!child.selected) return;
-      child.picks[COURSES[child.step].key] = { d: child.optFor, o: child.selected };
-      advance();
-      break;
-    }
-    case 'skip':                                                       // "No thank you" / skip a step
-      child.picks[COURSES[child.step].key] = null;
-      advance();
-      break;
-    case 'back':                                                       // Go back
-      if (child.optFor) {                                              // From options back to dishes
-        child.selected = child.optFor;
-        child.optFor = null;
-      } else {                                                         // Back one step
-        child.step = Math.max(0, child.step - 1);
-        const p = child.picks[COURSES[child.step].key];
-        child.selected = p ? p.d : null;
-      }
-      break;
-    case 'nextchild':                                                  // Reset for the next child (card too, for safety)
-      child = newChild();
-      break;
-
-    // ----- Kitchen: which day is shown -----
-    case 'kfilter':  kitchenFilter = btn.dataset.f || null;           dishDraft = null; break;   // Kitchen filter button
-    case 'slotweek': slot = { ...slot, week: Number(btn.dataset.w) }; dishDraft = null; break;
-    case 'slotday':  slot = { ...slot, day: btn.dataset.d };          dishDraft = null; break;
-    case 'today':    slot = todaySlot();                              dishDraft = null; break;
-    case 'setweek':                                                    // "This week is Week N"
-      S.rotation = { anchor: isoDate(mondayOf(new Date())), anchorWeek: Number(btn.dataset.w) };
-      save();
-      slot = todaySlot();
-      toast('This week is now Week ' + btn.dataset.w);
-      break;
-
-    // ----- Kitchen: dishes -----
-    case 'newdish':
-      dishDraft = { id: uid(), name: '', emoji: '🍽️', photo: null, course: 'main', week: slot.week, day: slot.day,
-                    allergens: [], tags: [], checked: false, options: [], optionPrompt: '' };
-      cardDraft = null;
-      break;
-    case 'editdish':
-      dishDraft = JSON.parse(JSON.stringify(dishById(id)));            // Copy, so Cancel doesn't change the original
-      cardDraft = null;
-      break;
-    case 'canceldish': dishDraft = null; break;
-    case 'addopt':                                                     // "Add a choice" inside a dish
-      syncDishDraft();                                                 // Keep what's already typed
-      dishDraft.options.push(opt('', '🍽️'));
-      break;
-    case 'delopt':                                                     // Remove a choice
-      syncDishDraft();
-      dishDraft.options.splice(Number(btn.dataset.i), 1);
-      break;
-    case 'deldish':
-      if (pendingDelete === id) {
-        S.dishes = S.dishes.filter(d => d.id !== id);
-        pendingDelete = null;
-        save();
-        toast('Dish removed');
-      } else pendingDelete = id;
-      break;
-    case 'emoji':                                                      // Emoji picked for the dish
-      dishDraft.emoji = btn.dataset.e;
-      dishDraft.photo = null;
-      document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
-      document.getElementById('f-clearphoto').hidden = true;
-      return;                                                          // Don't redraw (keeps typed text)
-    case 'clearphoto':
-      dishDraft.photo = null;
-      document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
-      btn.hidden = true;
-      return;
-
-    // ----- Kitchen: diet cards -----
-    case 'newcard':
-      cardDraft = { id: uid(), name: '', color: CARD_COLOURS[3][0], avoid: [], vegOnly: false };
-      dishDraft = null;
-      break;
-    case 'editcard':
-      cardDraft = JSON.parse(JSON.stringify(cardById(id)));
-      dishDraft = null;
-      break;
-    case 'cancelcard': cardDraft = null; break;
-    case 'delcard':
-      if (pendingDelete === id) {
-        S.cards = S.cards.filter(c => c.id !== id);
-        if (child.cardId === id) child.cardId = null;
-        pendingDelete = null;
-        save();
-        toast('Diet card removed');
-      } else pendingDelete = id;
-      break;
-
-    // ----- Settings and counts -----
-    case 'reset':       confirmReset = true;  break;
-    case 'cancelreset': confirmReset = false; break;
-    case 'doreset':
-      S = startingData();
-      save();
-      confirmReset = false;
-      child = newChild();
-      slot = todaySlot();
-      toast('School menu restored');
-      break;
-    case 'clear':       confirmClear = true;  break;
-    case 'cancelclear': confirmClear = false; break;
-    case 'doclear':
-      S.tally = {};
-      save();
-      confirmClear = false;
-      toast('Ready for a new day');
-      break;
-
-    default: return;
   }
-  render();                                                            // Redraw with the changes
+  render();
 });
 
-// Switches and file uploads
 document.addEventListener('change', async e => {
-  if (e.target.id === 's-speech') {                                    // "Read choices aloud"
-    S.speech = e.target.checked;
-    save();
-    toast(S.speech ? 'Reading aloud is on' : 'Reading aloud is off');
+  const t = e.target;
+  if (t.id === 's-speech' && role === 'manager') {
+    await saveSettings({ speech: t.checked });
+    toast(t.checked ? 'Reading aloud is on' : 'Reading aloud is off');
   }
-  if (e.target.id === 'f-photo' && e.target.files[0]) {                // Photo chosen in the dish form
+  if (t.id === 'o-date' && t.value) { ordersDate = t.value; listenOrders(); render(); }
+  if (t.id === 'f-photo' && t.files[0]) {
     try {
-      dishDraft.photo = await readPhoto(e.target.files[0]);
+      dishDraft.photo = await readPhoto(t.files[0]);
       document.getElementById('f-preview').innerHTML = dishMedia(dishDraft);
       document.getElementById('f-clearphoto').hidden = false;
-    } catch (err) {
-      toast('That file could not be read as a picture. Try a JPG or PNG.');
-    }
+    } catch (err) { toast('That file could not be read as a picture. Try a JPG or PNG.'); }
   }
 });
 
-// Saving the forms
-document.addEventListener('submit', e => {
-  e.preventDefault();                                                  // Stop the page reloading
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  const f = new FormData(form);
 
-  if (e.target.id === 'dishForm') {
-    syncDishDraft();                                                   // Read every field into dishDraft
+  // ----- Sign in -----
+  if (form.id === 'loginForm') {
+    busy = true; loginError = ''; render();
+    try {
+      await auth.signInWithEmailAndPassword(loginEmail(String(f.get('user'))), String(f.get('pass')));
+    } catch (err) {
+      console.error(err);
+      loginError = ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'].includes(err.code)
+        ? 'Wrong username or password.'
+        : err.code === 'auth/too-many-requests' ? 'Too many attempts. Wait a few minutes and try again.'
+        : 'Could not sign in (' + err.code + '). Check the internet connection.';
+    }
+    busy = false; render();
+    return;
+  }
+  if (role !== 'manager') return;                             // Everything below is manager-only
+
+  if (form.id === 'dishForm') {
+    syncDishDraft();
     const d = dishDraft;
-    d.options = d.options.filter(o => o.name);                         // Drop choices left without a name
-    const i = S.dishes.findIndex(x => x.id === d.id);
-    if (i >= 0) S.dishes[i] = d; else S.dishes.push(d);                // Replace or add
-    dishDraft = null;
-    save();
-    toast('Saved ' + d.name);
+    d.options = d.options.filter(o => o.name);
+    if (await saveDish(d)) dishDraft = null;
   }
 
-  if (e.target.id === 'cardForm') {
-    const f = new FormData(e.target);
+  if (form.id === 'cardForm') {
     const c = Object.assign(cardDraft, {
       name: String(f.get('name')).trim(),
       color: f.get('color') || CARD_COLOURS[0][0],
       avoid: f.getAll('avoid'),
       vegOnly: f.get('vegOnly') === 'on'
     });
-    const i = S.cards.findIndex(x => x.id === c.id);
-    if (i >= 0) S.cards[i] = c; else S.cards.push(c);
-    cardDraft = null;
-    save();
-    toast('Saved ' + c.name);
+    if (await saveCard(c)) cardDraft = null;
+  }
+
+  if (form.id === 'schoolForm') {
+    const name = String(f.get('name')).trim();
+    const ref = schoolDraft.id ? db.collection('schools').doc(schoolDraft.id) : db.collection('schools').doc();
+    if (await run(ref.set({ name }), 'Saved ' + name)) schoolDraft = null;
+  }
+
+  if (form.id === 'classForm') {
+    const c = classDraft;
+    const name = String(f.get('name')).trim();
+    const needLogin = !c.id || c.newLogin;
+    const username = String(f.get('username') || '').trim().toLowerCase();
+    const password = String(f.get('password') || '');
+    if (needLogin && !USERNAME_RULE.test(username)) { toast('Username: 3–30 lowercase letters, numbers or dashes, e.g. a-aa'); return; }
+    busy = true; render();
+    try {
+      const ref = c.id ? db.collection('classes').doc(c.id) : db.collection('classes').doc();
+      const batch = db.batch();
+      if (needLogin) {
+        const newUid = await createClassLogin(username, password);                    // New Firebase login
+        batch.set(db.collection('accounts').doc(newUid), { role: 'class', schoolId: c.schoolId, classId: ref.id });
+        if (c.uid) batch.delete(db.collection('accounts').doc(c.uid));                // Block the old login
+        batch.set(ref, { schoolId: c.schoolId, name, username, uid: newUid });
+      } else {
+        batch.set(ref, { name }, { merge: true });
+      }
+      await batch.commit();
+      toast(needLogin ? `Saved. Class login: ${username}` : 'Saved ' + name);
+      classDraft = null;
+    } catch (err) {
+      console.error(err);
+      toast(err.code === 'auth/email-already-in-use' ? 'That username is already taken. Choose another.'
+          : err.code === 'auth/weak-password' ? 'The password must be at least 6 characters.'
+          : 'Could not save the class: ' + (err.message || err.code));
+    }
+    busy = false;
   }
 
   render();
 });
 
 /* ---------------------------------------------------------------------
-   START - draw the first screen
+   START
    --------------------------------------------------------------------- */
 render();
