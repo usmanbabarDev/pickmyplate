@@ -179,7 +179,10 @@ h1, h2, h3, .brand-name {                           /* All headings and the app 
 .tally-progress .progress-bar { background: var(--pmp-brand); }   /* Bars in the brand colour */
 .tabular { font-variant-numeric: tabular-nums; }       /* Numbers line up neatly in columns */
 
-/* ---------- 10. Accessibility ---------- */
+/* ---------- 10. Footer ---------- */
+.site-footer { background: var(--bs-body-bg); margin-top: 2rem; }   /* Plain strip at the bottom of every page */
+
+/* ---------- 11. Accessibility ---------- */
 :focus-visible { outline: 3px solid var(--pmp-brand); outline-offset: 2px; }   /* Clear outline for keyboard users */
 @media (prefers-reduced-motion: reduce) {           /* If the user has asked their device for less motion... */
   * { transition: none !important; animation: none !important; }   /* ...turn off all animations */
