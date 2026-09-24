@@ -9,10 +9,10 @@
    ===================================================================== */
 
 window.FIREBASE_CONFIG = {
-  apiKey: "",               // e.g. "AIzaSy..."
-  authDomain: "",           // e.g. "pickmyplate-12345.firebaseapp.com"
-  projectId: "",            // e.g. "pickmyplate-12345"
-  storageBucket: "",        // e.g. "pickmyplate-12345.appspot.com"
-  messagingSenderId: "",    // e.g. "123456789012"
-  appId: ""                 // e.g. "1:123456789012:web:abc123..."
+  apiKey: "AIzaSyAuhZSIF_1sgVbZ50O-fAsWgnWpCvrbJYg",
+  authDomain: "pickmyplate-685ed.firebaseapp.com",
+  projectId: "pickmyplate-685ed",
+  storageBucket: "pickmyplate-685ed.firebasestorage.app",
+  messagingSenderId: "886987853720",
+  appId: "1:886987853720:web:08bccfe1ff02f17a86a5ed"
 };
