@@ -214,6 +214,22 @@ async function loadSchoolMenu(replace) {
   return run(batch.commit(), 'School menu loaded');
 }
 
+// Give every dish and choice without a photo its real food photo from menu-data.js.
+// Photos the manager uploaded are never replaced.
+async function addStockPhotos() {
+  const batch = db.batch();
+  let changed = 0;
+  S.dishes.forEach(d => {
+    const photo = d.photo || FOOD_PHOTOS[d.name] || null;                                  // Keep own photo, else the stock photo
+    const options = (d.options || []).map(o => ({ ...o, photo: o.photo || OPTION_PHOTOS[o.name] || null }));
+    const differs = photo !== (d.photo || null) || options.some((o, i) => o.photo !== (d.options[i].photo || null));
+    if (differs) { batch.update(db.collection('dishes').doc(d.id), { photo, options }); changed++; }
+  });
+  if (!changed) { toast('Every dish already has a photo.'); return; }
+  await run(batch.commit(), `Added photos to ${changed} ${changed === 1 ? 'dish' : 'dishes'}`);
+}
+const missingPhotos = () => S.dishes.filter(d => (!d.photo && FOOD_PHOTOS[d.name]) || (d.options || []).some(o => !o.photo && OPTION_PHOTOS[o.name])).length;
+
 // Create a class login. Uses a second, separate Firebase connection so the manager stays signed in.
 let creatorAuth = null;
 async function createClassLogin(username, password) {
@@ -738,6 +754,12 @@ function viewKitchen() {
             <label class="form-check-label fw-bold" for="s-speech">Read choices aloud</label>
           </div>
           <p class="small text-body-secondary">Applies to every class device.</p>
+          ${missingPhotos() ? `
+            <div class="alert alert-info small">
+              <b>${plural(missingPhotos(), 'dish is', 'dishes are')} still showing emoji.</b> Add real food photos (all the same size) in one click.
+              Photos you've uploaded yourself are kept.
+              <div class="mt-2"><button class="btn btn-sm btn-primary" data-act="addphotos" ${busy ? 'disabled' : ''}>${busy ? 'Adding photos…' : 'Add food photos'}</button></div>
+            </div>` : ''}
           ${confirmReset
             ? `<div class="alert alert-danger small">This replaces every dish and diet card with the original school menu. Your edits will be lost.</div>
                <button class="btn btn-danger" data-act="doreset">Yes, replace the menu</button>
@@ -1035,6 +1057,7 @@ document.addEventListener('click', async e => {
       if (!isManager) return;
       switch (act) {
         case 'seed': busy = true; render(); await loadSchoolMenu(false); busy = false; break;
+        case 'addphotos': busy = true; render(); await addStockPhotos(); busy = false; break;
         case 'reset': confirmReset = true; break;
         case 'cancelreset': confirmReset = false; break;
         case 'doreset': confirmReset = false; busy = true; render(); await loadSchoolMenu(true); busy = false; break;

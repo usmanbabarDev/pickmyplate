@@ -75,6 +75,11 @@ See [BACKLOG.md](BACKLOG.md). Highlights:
 - [x] Share one menu and live orders across devices and schools
 - [ ] Accessibility audit (WCAG 2.2 AA) and switch-access support
 
+## Photo credits
+
+Food photos are from [Unsplash](https://unsplash.com) and used under the [Unsplash License](https://unsplash.com/license).
+The kitchen manager can replace any of them with photos of the school's own food.
+
 ## Licence
 
 [MIT](LICENSE)

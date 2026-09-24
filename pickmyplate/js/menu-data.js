@@ -48,13 +48,85 @@ const EMOJIS = ['🍝','🥧','🍗','🍖','🍔','🐟','🍟','🌯','🍛','
 
 const uid = () => Math.random().toString(36).slice(2, 9);    // Makes a random id like "k3f9a2x"
 
+// ---------------------------------------------------------------------
+// Real food photos (free to use under the Unsplash licence: https://unsplash.com/license).
+// All shown at the same size: 800 x 600 pixels, cropped to fill.
+// The kitchen manager can replace any of them with their own photo in Kitchen menu → Edit.
+// ---------------------------------------------------------------------
+const STOCK = id => 'https://images.unsplash.com/' + id + '?w=800&h=600&fit=crop&q=80&auto=format';
+
+// Dish name -> photo
+const FOOD_PHOTOS = {
+  'Jacket potato': STOCK('photo-1642522685167-cf414ea225be'),
+  'Sandwich': STOCK('photo-1655279562015-047c3da9a271'),
+  'Seasonal vegetables': STOCK('photo-1592578630143-fac65cda7a67'),
+  'Mixed salad': STOCK('photo-1540420773420-3366772f4999'),
+  'Fruit': STOCK('photo-1498507297833-5373e346b4e0'),
+  'Pasta with meatballs': STOCK('photo-1632808664408-f8ab196b0523'),
+  'Vegetarian meatballs': STOCK('photo-1674456720401-1557c76bf72c'),
+  'Cowboy pie': STOCK('photo-1658925111653-2c08083c08ff'),
+  'Cheese and potato pie': STOCK('photo-1696935257293-9ec4f03074a1'),
+  'Potatoes, Chicken, Yorkshire puddings and Stuffing, Gravy.': STOCK('photo-1780304223294-d901e0378bb8'),
+  'Potatoes,  Yorkshire puddings and Stuffing, Gravy.': STOCK('photo-1635897411141-7bd2b9c6ab16'),
+  'Roast beef dinner': STOCK('photo-1635897411141-7bd2b9c6ab16'),
+  'Quorn roast dinner': STOCK('photo-1606426677093-c5b8cab8df20'),
+  'Burger and wedges': STOCK('photo-1594212699903-ec8a3eca50f5'),
+  'Veggie burger and wedges': STOCK('photo-1520072959219-c595dc870360'),
+  'Fish and chips': STOCK('photo-1697748836791-9ddf7e616ece'),
+  'Plant-based fish and chips': STOCK('photo-1719459341702-fc1c814d8dce'),
+  'Flapjack': STOCK('photo-1633360821154-1935fb5671e6'),
+  'Banana cake': STOCK('photo-1632931057819-4eefffa8e007'),
+  'Cookie': STOCK('photo-1499636136210-6f4ee915583e'),
+  'Apple crumble': STOCK('photo-1706799419621-14d7f424de83'),
+  'Berry crumble': STOCK('photo-1567977750379-8f3550644c2b'),
+  'Pear crumble': STOCK('photo-1767065584306-267605a61c95'),
+  'Brownie': STOCK('photo-1636743715220-d8f8dd900b87'),
+  'Blondie': STOCK('photo-1682622110395-145cc13d5346'),
+  'Spaghetti bolognese': STOCK('photo-1622973536968-3ead9e780960'),
+  'Quorn bolognese': STOCK('photo-1622973536968-3ead9e780960'),
+  'Chicken curry and rice': STOCK('photo-1708782344490-9026aaa5eec7'),
+  'Quorn curry and rice': STOCK('photo-1708782344490-9026aaa5eec7'),
+  'Chicken wrap and wedges': STOCK('photo-1626700051175-6818013e1d4f'),
+  'Plant-based chicken wrap and wedges': STOCK('photo-1626700051175-6818013e1d4f'),
+  'Fish cakes and chips': STOCK('photo-1607877200924-1762edf69437'),
+  'Cauliflower cheese grills and chips': STOCK('photo-1586032340517-0475038cee18'),
+  'Jam sponge cake': STOCK('photo-1611980740456-f5d7fddab908'),
+  'Chocolate sponge cake': STOCK('photo-1517427294546-5aa121f68e8a'),
+  'Lasagne and garlic bread': STOCK('photo-1709429790175-b02bb1b19207'),
+  'Vegetable lasagne and garlic bread': STOCK('photo-1739790397103-f1736c44235a'),
+  'Chicken korma and rice': STOCK('photo-1764304733301-3a9f335f0c67'),
+  'Quorn korma and rice': STOCK('photo-1764304733301-3a9f335f0c67'),
+  'Nuggets or hot dog, with wedges': STOCK('photo-1627662055487-551888db3aa8'),
+  'Veggie nuggets or veggie hot dog': STOCK('photo-1627378378952-a736d8e12219'),
+  'Fish fingers and chips': STOCK('photo-1678969406337-1869bb0c0dc4'),
+  'Plant-based fish fingers and chips': STOCK('photo-1678969406337-1869bb0c0dc4'),
+  'Cornflake tart': STOCK('photo-1677740929617-e8d3679f6ad1')
+};
+
+// Choice name (fillings, custard, ...) -> photo. "No custard" keeps its emoji.
+const OPTION_PHOTOS = {
+  'Cheese': STOCK('photo-1574175679306-4c5f33146b6f'),
+  'Cheese and beans': STOCK('photo-1779119867390-c64f66cd02b8'),
+  'Coleslaw': STOCK('photo-1573403707491-38a4ea19edc1'),
+  'Tuna': STOCK('photo-1779914942318-494c24cd8530'),
+  'Turkey Ham': STOCK('photo-1607756794535-ba48a526b73a'),
+  'Jam': STOCK('photo-1633084426862-3a8c25aa7ce5'),
+  'With custard': STOCK('photo-1663446783008-c34241daff22'),
+  'Chicken burger': STOCK('photo-1637710847214-f91d99669e18'),
+  'Beef burger': STOCK('photo-1568901346375-23c9450c58cd'),
+  'Chicken nuggets': STOCK('photo-1627662055487-551888db3aa8'),
+  'Beef hot dog': STOCK('photo-1599599810694-b5b37304c041'),
+  'Veggie nuggets': STOCK('photo-1627378378952-a736d8e12219'),
+  'Veggie hot dog': STOCK('photo-1599599810694-b5b37304c041')
+};
+
 // Creates one dish. week: 0 = every week, 1-3 = that week. day: 'all' = every day, or 'mon'...'fri'
 function dish(week, day, course, name, emoji, allergens = [], tags = [], extra = {}) {
   return Object.assign({
     id: uid(),              // Unique id
     week, day, course,      // When it's served and which step it belongs to
     name, emoji,            // What children see
-    photo: null,            // Optional uploaded photo
+    photo: FOOD_PHOTOS[name] || null,   // Real food photo (the kitchen manager can replace it)
     allergens, tags,        // Allergens it contains; vegetarian/vegan/halal
     checked: true,          // true = allergens confirmed by the kitchen manager (untick in the dish form to hide it from diet cards)
     options: [],            // Choices inside the dish (e.g. jacket potato fillings)
@@ -64,7 +136,7 @@ function dish(week, day, course, name, emoji, allergens = [], tags = [], extra =
 }
 
 // Creates one choice inside a dish (e.g. "Tuna" inside "Jacket potato")
-const opt = (name, emoji, allergens = [], tags = []) => ({ id: uid(), name, emoji, allergens, tags });
+const opt = (name, emoji, allergens = [], tags = []) => ({ id: uid(), name, emoji, photo: OPTION_PHOTOS[name] || null, allergens, tags });
 
 // Custard choice used for every dessert of the day
 const custard = () => ({
